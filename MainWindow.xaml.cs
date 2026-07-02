@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Policy;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -273,6 +274,8 @@ namespace Dbt_Migrate
         public async Task DbtMigrate()
         {
             string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
+            string operationName = cmbOperation.Text;
+            string dbtMigrationName = cmbDbtMigrate.Text;
 
             string url = "";
 
@@ -312,88 +315,133 @@ namespace Dbt_Migrate
             Liste.Add($"              Başladı - {url}-{urlValue.Text}");
             Liste.Add("         *********************      ");
             list.ItemsSource = Liste;
+            errors.ItemsSource = ErrorListe;
 
             list.SelectedIndex = list.Items.Count - 1;
             list.ScrollIntoView(list.SelectedItem);
             RaisePropertyChanged(nameof(Liste));
+            RaisePropertyChanged(nameof(ErrorListe));
 
             int start = int.Parse(tbstart.Text);
             int end = int.Parse(tbend.Text) + 1;
 
-            for (int i = start; i < end; i++)
+            int successCount = 0;
+            int errorCount = 0;
+
+            var indexes = Enumerable.Range(start, end - start)
+                .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
+                .ToList();
+
+            async Task UpdateOperationAsync(string text)
             {
-                if (DatNames != null && DatNames.Any())
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    var index = DatNames.IndexOf($"Dbt_{i}");
-                    if (index < 0)
+                    _operation = text;
+                    RaisePropertyChanged(nameof(Operation));
+                });
+            }
+
+            async Task AddSuccessAsync(string message)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    Liste.Add(message);
+                    list.ItemsSource = Liste;
+                    RaisePropertyChanged(nameof(Liste));
+                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
+                    RaisePropertyChanged(nameof(Operation));
+
+                    list.SelectedIndex = list.Items.Count - 1;
+                    list.ScrollIntoView(list.SelectedItem);
+                });
+            }
+
+            async Task AddErrorAsync(string errorMessage, string? listMessage = null)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (!string.IsNullOrWhiteSpace(listMessage))
                     {
-                        continue;
+                        Liste.Add(listMessage);
+                        list.ItemsSource = Liste;
+                        RaisePropertyChanged(nameof(Liste));
+
+                        list.SelectedIndex = list.Items.Count - 1;
+                        list.ScrollIntoView(list.SelectedItem);
+                    }
+
+                    ErrorListe.Add(errorMessage);
+                    errors.ItemsSource = ErrorListe;
+                    RaisePropertyChanged(nameof(ErrorListe));
+                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
+                    RaisePropertyChanged(nameof(Operation));
+
+                    errors.SelectedIndex = errors.Items.Count - 1;
+                    errors.ScrollIntoView(errors.SelectedItem);
+                });
+            }
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("Connection", "keep-alive");
+            client.DefaultRequestHeaders.Add("Keep-Alive", "600");
+
+            await Parallel.ForEachAsync(indexes, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 3
+            }, async (i, cancellationToken) =>
+            {
+                string url1 = $"{url}{i}/{dbtMigrationName}";
+
+                await UpdateOperationAsync($"{operationName} - Çalışıyor: {url1} | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}");
+
+                HttpResponseMessage response = null;
+
+                try
+                {
+                    response = await client.GetAsync(url1, cancellationToken);
+                    var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                    if (response.StatusCode == HttpStatusCode.OK)
+                    {
+                        Interlocked.Increment(ref successCount);
+                        await AddSuccessAsync($"{i} --> {responseContent}");
+                    }
+                    else
+                    {
+                        string error = !string.IsNullOrWhiteSpace(responseContent) ? responseContent : "";
+                        Interlocked.Increment(ref errorCount);
+                        await AddErrorAsync($"{i} - Status Code: {response.StatusCode} -- {error}", $"{i} --> error");
                     }
                 }
-
-                var client = new HttpClient();
-                client.DefaultRequestHeaders.Add("Connection", "keep-alive");
-                client.DefaultRequestHeaders.Add("Keep-Alive", "600");
-
-                string url1 = $"{url}{i}/{cmbDbtMigrate.Text}";
-
-                Operation = $"{cmbOperation.Text} - {url1}";
-
-                var response = await client.GetAsync(url1);
-
-                if (response.StatusCode == HttpStatusCode.OK)
+                catch (Exception exx)
                 {
-                    var responseContent = await response.Content.ReadAsStringAsync();
-
-                    Liste.Add($"{i} --> {responseContent}");
-
-                    list.ItemsSource = Liste;
-
-                    RaisePropertyChanged(nameof(Liste));
-
-                    list.SelectedIndex = list.Items.Count - 1;
-                    list.ScrollIntoView(list.SelectedItem);
-
-
-                    await Task.Delay(500);
-
+                    string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
+                    Interlocked.Increment(ref errorCount);
+                    await AddErrorAsync($"{i} - Status Code: {response?.StatusCode} -- {error}", $"{i} --> error");
                 }
-                else
-                {
-                    var responseContent = await response.Content.ReadAsStringAsync();
+            });
 
-                    Liste.Add($"{i} --> error");
+            await Dispatcher.InvokeAsync(() =>
+            {
+                Liste.Add("         *********************      ");
+                Liste.Add($"              Tamamlandı - Başarılı: {successCount} - Hatalı: {errorCount}");
+                Liste.Add("         *********************      ");
+                Liste.Add("         ");
+                Liste.Add("         ");
+                list.SelectedIndex = list.Items.Count - 1;
+                list.ScrollIntoView(list.SelectedItem);
+                RaisePropertyChanged(nameof(Liste));
+            });
 
-                    list.ItemsSource = Liste;
-
-                    RaisePropertyChanged(nameof(Liste));
-
-                    list.SelectedIndex = list.Items.Count - 1;
-                    list.ScrollIntoView(list.SelectedItem);
-
-                    string error = !string.IsNullOrWhiteSpace(responseContent) ? responseContent : "";
-                    ErrorListe.Add($"{i} - Status Code: {response.StatusCode} -- {error}");
-
-                    RaisePropertyChanged(nameof(ErrorListe));
-
-                    await Task.Delay(500);
-                }
-
-                client.Dispose();
-            }
-            Liste.Add("         *********************      ");
-            Liste.Add("              Tamamlandı");
-            Liste.Add("         *********************      ");
-            Liste.Add("         ");
-            Liste.Add("         ");
-            list.SelectedIndex = list.Items.Count - 1;
-            list.ScrollIntoView(list.SelectedItem);
-            RaisePropertyChanged(nameof(Liste));
+            await UpdateOperationAsync($"{operationName} - Tamamlandı | Başarılı: {successCount} | Hatalı: {errorCount}");
         }
 
         public async Task FunctionRenew()
         {
             string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
+            string operationName = cmbOperation.Text;
+            string selectedFunction = cmbFunctions.Text;
+            string sqlFunction = femsql.Text;
 
             string url = "";
 
@@ -429,81 +477,123 @@ namespace Dbt_Migrate
             Liste.Add($"              Başladı - {url}");
             Liste.Add("         *********************      ");
             list.ItemsSource = Liste;
+            errors.ItemsSource = ErrorListe;
 
             list.SelectedIndex = list.Items.Count - 1;
             list.ScrollIntoView(list.SelectedItem);
             RaisePropertyChanged(nameof(Liste));
+            RaisePropertyChanged(nameof(ErrorListe));
 
             int start = int.Parse(tbstart.Text);
             int end = int.Parse(tbend.Text) + 1;
 
-            for (int i = start; i < end; i++)
+            int successCount = 0;
+            int errorCount = 0;
+
+            var indexes = Enumerable.Range(start, end - start)
+                .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
+                .ToList();
+
+            async Task UpdateOperationAsync(string text)
             {
-                if (DatNames != null && DatNames.Any())
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    var index = DatNames.IndexOf($"Dbt_{i}");
-                    if (index < 0)
-                    {
-                        continue;
-                    }
-                }
+                    _operation = text;
+                    RaisePropertyChanged(nameof(Operation));
+                });
+            }
 
-                var client = new HttpClient();
-                client.DefaultRequestHeaders.Add("Connection", "keep-alive");
-                client.DefaultRequestHeaders.Add("Keep-Alive", "600");
-
-                string url1 = !string.IsNullOrWhiteSpace(cmbFunctions.Text)
-                    ? $"{url}/{i}/{cmbFunctions.Text}"
-                    : $"{url}/{i}/{femsql.Text}";
-
-                Operation = $"{cmbOperation.Text} - {url1}";
-
-                var response = await client.GetAsync(url1);
-
-                if (response.StatusCode == HttpStatusCode.OK)
+            async Task AddSuccessAsync(string message)
+            {
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    var responseContent = await response.Content.ReadAsStringAsync();
-
-                    Liste.Add(responseContent);
-
+                    Liste.Add(message);
                     list.ItemsSource = Liste;
-
                     RaisePropertyChanged(nameof(Liste));
+                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
+                    RaisePropertyChanged(nameof(Operation));
 
                     list.SelectedIndex = list.Items.Count - 1;
                     list.ScrollIntoView(list.SelectedItem);
-
-
-                    await Task.Delay(500);
-
-                }
-                else
-                {
-                    var responseContent = await response.Content.ReadAsStringAsync();
-
-                    string error = !string.IsNullOrWhiteSpace(responseContent) ? responseContent : "";
-                    ErrorListe.Add($"{i} - Status Code: {response.StatusCode} -- {error}");
-
-                    RaisePropertyChanged(nameof(ErrorListe));
-
-                    await Task.Delay(500);
-                }
-
-                client.Dispose();
+                });
             }
-            Liste.Add("         *********************      ");
-            Liste.Add("              Tamamlandı");
-            Liste.Add("         *********************      ");
-            Liste.Add("         ");
-            Liste.Add("         ");
-            list.SelectedIndex = list.Items.Count - 1;
-            list.ScrollIntoView(list.SelectedItem);
-            RaisePropertyChanged(nameof(Liste));
+
+            async Task AddErrorAsync(string message)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    ErrorListe.Add(message);
+                    errors.ItemsSource = ErrorListe;
+                    RaisePropertyChanged(nameof(ErrorListe));
+                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
+                    RaisePropertyChanged(nameof(Operation));
+
+                    errors.SelectedIndex = errors.Items.Count - 1;
+                    errors.ScrollIntoView(errors.SelectedItem);
+                });
+            }
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("Connection", "keep-alive");
+            client.DefaultRequestHeaders.Add("Keep-Alive", "600");
+
+            await Parallel.ForEachAsync(indexes, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 3
+            }, async (i, cancellationToken) =>
+            {
+                string url1 = !string.IsNullOrWhiteSpace(selectedFunction)
+                    ? $"{url}/{i}/{selectedFunction}"
+                    : $"{url}/{i}/{sqlFunction}";
+
+                await UpdateOperationAsync($"{operationName} - Çalışıyor: {url1} | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}");
+
+                HttpResponseMessage response = null;
+
+                try
+                {
+                    response = await client.GetAsync(url1, cancellationToken);
+                    var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                    if (response.StatusCode == HttpStatusCode.OK)
+                    {
+                        Interlocked.Increment(ref successCount);
+                        await AddSuccessAsync(responseContent);
+                    }
+                    else
+                    {
+                        string error = !string.IsNullOrWhiteSpace(responseContent) ? responseContent : "";
+                        Interlocked.Increment(ref errorCount);
+                        await AddErrorAsync($"{i} - Status Code: {response.StatusCode} -- {error}");
+                    }
+                }
+                catch (Exception exx)
+                {
+                    string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
+                    Interlocked.Increment(ref errorCount);
+                    await AddErrorAsync($"{i} - Status Code: {response?.StatusCode} -- {error}");
+                }
+            });
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                Liste.Add("         *********************      ");
+                Liste.Add($"              Tamamlandı - Başarılı: {successCount} - Hatalı: {errorCount}");
+                Liste.Add("         *********************      ");
+                Liste.Add("         ");
+                Liste.Add("         ");
+                list.SelectedIndex = list.Items.Count - 1;
+                list.ScrollIntoView(list.SelectedItem);
+                RaisePropertyChanged(nameof(Liste));
+            });
+
+            await UpdateOperationAsync($"{operationName} - Tamamlandı | Başarılı: {successCount} | Hatalı: {errorCount}");
         }
 
         public async Task Migrate()
         {
             string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
+            string operationName = cmbOperation.Text;
 
             string url = "";
 
@@ -546,97 +636,115 @@ namespace Dbt_Migrate
             Liste.Add($"              Başladı - {url}");
             Liste.Add("         *********************      ");
             list.ItemsSource = Liste;
+            errors.ItemsSource = ErrorListe;
 
             list.SelectedIndex = list.Items.Count - 1;
             list.ScrollIntoView(list.SelectedItem);
             RaisePropertyChanged(nameof(Liste));
+            RaisePropertyChanged(nameof(ErrorListe));
 
             int start = int.Parse(tbstart.Text);
             int end = int.Parse(tbend.Text) + 1;
 
-            for (int i = start; i <= end; i++)
+            int successCount = 0;
+            int errorCount = 0;
+
+            var indexes = Enumerable.Range(start, (end - start) + 1)
+                .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
+                .ToList();
+
+            async Task UpdateOperationAsync(string text)
             {
-                if (DatNames != null && DatNames.Any())
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    var index = DatNames.IndexOf($"Dbt_{i}");
-                    if (index < 0)
-                    {
-                        continue;
-                    }
-                }
+                    _operation = text;
+                    RaisePropertyChanged(nameof(Operation));
+                });
+            }
 
-                var client = new HttpClient();
-                client.DefaultRequestHeaders.Add("Connection", "keep-alive");
-                //client.DefaultRequestHeaders.Add("Keep-Alive", "true");
-                client.DefaultRequestHeaders.ConnectionClose = false;
+            async Task AddSuccessAsync(string message)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    Liste.Add(message);
+                    list.ItemsSource = Liste;
+                    RaisePropertyChanged(nameof(Liste));
+                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
+                    RaisePropertyChanged(nameof(Operation));
 
-                string url1 = $"{url}/{i}"; // url.Replace("<i>", i.ToString());
-                
-                Operation = $"{cmbOperation.Text} - {url1}";
+                    list.SelectedIndex = list.Items.Count - 1;
+                    list.ScrollIntoView(list.SelectedItem);
+                });
+            }
+
+            async Task AddErrorAsync(string message)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    ErrorListe.Add(message);
+                    errors.ItemsSource = ErrorListe;
+                    RaisePropertyChanged(nameof(ErrorListe));
+                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
+                    RaisePropertyChanged(nameof(Operation));
+
+                    errors.SelectedIndex = errors.Items.Count - 1;
+                    errors.ScrollIntoView(errors.SelectedItem);
+                });
+            }
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("Connection", "keep-alive");
+            client.DefaultRequestHeaders.ConnectionClose = false;
+
+            await Parallel.ForEachAsync(indexes, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = 3
+            }, async (i, cancellationToken) =>
+            {
+                string url1 = $"{url}/{i}";
+
+                await UpdateOperationAsync($"{operationName} - Çalışıyor: {url1} | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}");
 
                 HttpResponseMessage response = null;
 
                 try
                 {
-                    response = await client.GetAsync(url1);
+                    response = await client.GetAsync(url1, cancellationToken);
+                    var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
                     if (response.StatusCode == HttpStatusCode.OK)
                     {
-                        var responseContent = await response.Content.ReadAsStringAsync();
-
-                        Liste.Add($"{responseContent} - {DateTime.Now.ToString()}");
-
-                        list.ItemsSource = Liste;
-
-                        RaisePropertyChanged(nameof(Liste));
-
-                        list.SelectedIndex = list.Items.Count - 1;
-                        list.ScrollIntoView(list.SelectedItem);
-
-
-                        await Task.Delay(500);
-
+                        Interlocked.Increment(ref successCount);
+                        await AddSuccessAsync($"{i} - {responseContent} - {DateTime.Now}");
                     }
                     else
                     {
-                        var responseContent = await response.Content.ReadAsStringAsync();
-
                         string error = !string.IsNullOrWhiteSpace(responseContent) ? responseContent : "";
-                        ErrorListe.Add($"{i} - Status Code: {response.StatusCode} -- {error}");
-
-                        errors.ItemsSource = ErrorListe;
-
-                        RaisePropertyChanged(nameof(ErrorListe));
-
-                        await Task.Delay(500);
+                        Interlocked.Increment(ref errorCount);
+                        await AddErrorAsync($"{i} - Status Code: {response.StatusCode} -- {error}");
                     }
                 }
                 catch (Exception exx)
                 {
-                    var responseContent = (response != null && response.Content != null) ? await response.Content.ReadAsStringAsync() : "";
-
                     string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
-                    ErrorListe.Add($"{i} - Status Code: {response?.StatusCode} -- {error}");
-
-                    RaisePropertyChanged(nameof(ErrorListe));
-
-                    errors.ItemsSource = ErrorListe;
-
-                    await Task.Delay(500);
-
+                    Interlocked.Increment(ref errorCount);
+                    await AddErrorAsync($"{i} - Status Code: {response?.StatusCode} -- {error}");
                 }
+            });
 
+            await Dispatcher.InvokeAsync(() =>
+            {
+                Liste.Add("         *********************      ");
+                Liste.Add($"              Tamamlandı - Başarılı: {successCount} - Hatalı: {errorCount}");
+                Liste.Add("         *********************      ");
+                Liste.Add("         ");
+                Liste.Add("         ");
+                list.SelectedIndex = list.Items.Count - 1;
+                list.ScrollIntoView(list.SelectedItem);
+                RaisePropertyChanged(nameof(Liste));
+            });
 
-                client.Dispose();
-            }
-            Liste.Add("         *********************      ");
-            Liste.Add("              Tamamlandı");
-            Liste.Add("         *********************      ");
-            Liste.Add("         ");
-            Liste.Add("         ");
-            list.SelectedIndex = list.Items.Count - 1;
-            list.ScrollIntoView(list.SelectedItem);
-            RaisePropertyChanged(nameof(Liste));
+            await UpdateOperationAsync($"{operationName} - Tamamlandı | Başarılı: {successCount} | Hatalı: {errorCount}");
         }
 
         public async Task UpdateSalerIds()
@@ -1980,19 +2088,19 @@ namespace Dbt_Migrate
             grdUpdateSalerId.Visibility = cmbOperation.SelectedIndex == 6 ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        private void RunOperation_Click(object sender, RoutedEventArgs e)
+        private async void RunOperation_Click(object sender, RoutedEventArgs e)
         {
             if (cmbOperation.SelectedIndex == 0)
             {
-                Migrate();
+                await Migrate();
             }
             else if (cmbOperation.SelectedIndex == 1)
             {
-                DbtMigrate();
+                await DbtMigrate();
             }
             else if (cmbOperation.SelectedIndex == 2)
             {
-                FunctionRenew();
+                await FunctionRenew();
             }
             else if (cmbOperation.SelectedIndex == 3)
             {
@@ -2008,7 +2116,7 @@ namespace Dbt_Migrate
             }
             else if (cmbOperation.SelectedIndex == 6)
             {
-                UpdateSalerIds();
+                await UpdateSalerIds();
             }
         }
     }

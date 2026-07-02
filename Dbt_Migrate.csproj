@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net8.0-windows7.0</TargetFramework>
+		<!-- Warning: Setting the following switch is *NOT* recommended in web apps. -->
+		<EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
+		<WarningLevel>0</WarningLevel>
+		<NoWarn>$(NoWarn);SYSLIB0011</NoWarn>
+		<UseWPF>true</UseWPF>
+		<UseWindowsForms>true</UseWindowsForms>
+		<Platforms>AnyCPU</Platforms>
+		<GenerateErrorForMissingTargetingPacks>false</GenerateErrorForMissingTargetingPacks>
+		<RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+		<IncludePackageReferencesDuringMarkupCompilation>true</IncludePackageReferencesDuringMarkupCompilation>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+		<DefineConstants>DEBUG;TRACE</DefineConstants>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<Optimize>false</Optimize>
+	</PropertyGroup>
+	<ItemGroup>
+		<Compile Remove="Properties\**" />
+		<EmbeddedResource Remove="Properties\**" />
+		<None Remove="Properties\**" />
+		<Page Remove="Properties\**" />
+	</ItemGroup>
+	
+</Project>

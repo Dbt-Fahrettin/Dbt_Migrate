@@ -328,9 +328,18 @@ namespace Dbt_Migrate
             int successCount = 0;
             int errorCount = 0;
 
-            var indexes = Enumerable.Range(start, end - start)
-                .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
-                .ToList();
+            List<int> indexes = new List<int>();
+
+            if (tbstart.Text == "0")
+            {
+                indexes = new List<int>() { 0 };
+            }
+            else
+            {
+                indexes = Enumerable.Range(start, end - start)
+                    .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
+                    .ToList();
+            }
 
             async Task UpdateOperationAsync(string text)
             {
@@ -649,9 +658,18 @@ namespace Dbt_Migrate
             int successCount = 0;
             int errorCount = 0;
 
-            var indexes = Enumerable.Range(start, (end - start) + 1)
+            List<int> indexes = new List<int>();
+
+            if (tbstart.Text == "0")
+            {
+                indexes = new List<int>() { 0 };
+            }
+            else
+            {
+                indexes = Enumerable.Range(start, (end - start) + 1)
                 .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
                 .ToList();
+            }
 
             async Task UpdateOperationAsync(string text)
             {

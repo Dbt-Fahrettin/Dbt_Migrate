@@ -387,7 +387,7 @@ namespace Dbt_Migrate
 
             await Parallel.ForEachAsync(indexes, new ParallelOptions
             {
-                MaxDegreeOfParallelism = 5
+                MaxDegreeOfParallelism = 6
             }, async (i, cancellationToken) =>
             {
                 string url1 = $"{url}{i}/{dbtMigrationName}";
@@ -539,7 +539,7 @@ namespace Dbt_Migrate
 
             await Parallel.ForEachAsync(indexes, new ParallelOptions
             {
-                MaxDegreeOfParallelism = 5
+                MaxDegreeOfParallelism = 6
             }, async (i, cancellationToken) =>
             {
                 string url1 = !string.IsNullOrWhiteSpace(selectedFunction)
@@ -698,7 +698,7 @@ namespace Dbt_Migrate
 
             await Parallel.ForEachAsync(indexes, new ParallelOptions
             {
-                MaxDegreeOfParallelism = 5
+                MaxDegreeOfParallelism = 6
             }, async (i, cancellationToken) =>
             {
                 string url1 = $"{url}/{i}";

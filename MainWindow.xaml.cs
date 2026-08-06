@@ -29,7 +29,6 @@ namespace Dbt_Migrate
     /// </summary>
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
-        public int ListNo { get; set; }
         public MainWindow()
         {
             InitializeComponent();
@@ -255,21 +254,193 @@ namespace Dbt_Migrate
 
         }
 
-        private void Goster_Error_Click(object sender, RoutedEventArgs e)
+        #region durum paneli
+        /// <summary>Durum panelinde işlemin bittiğini gösteren aşama adı.</summary>
+        private const string FinishedPhase = "Tamamlandı";
+
+        private string _statusText = "Hazır";
+
+        /// <summary>Durum panelindeki açıklama (hangi işlem, hangi aşamada).</summary>
+        public string StatusText
         {
-            if (ListNo == 0)
+            get { return _statusText; }
+            set
             {
-                list.ItemsSource = ErrorListe;
-                ListNo = 1;
-                RaisePropertyChanged(nameof(ErrorListe));
-            }
-            else
-            {
-                list.ItemsSource = Liste;
-                ListNo = 0;
-                RaisePropertyChanged(nameof(Liste));
+                _statusText = value;
+                RaisePropertyChanged();
             }
         }
+
+        private Brush _statusBrush = Brushes.Gray;
+
+        /// <summary>Durum ışığı: gri = hazır, mavi = çalışıyor, yeşil = hatasız bitti, turuncu = hatalı bitti.</summary>
+        public Brush StatusBrush
+        {
+            get { return _statusBrush; }
+            set
+            {
+                _statusBrush = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private int _queuedCount;
+
+        public int QueuedCount
+        {
+            get { return _queuedCount; }
+            set
+            {
+                _queuedCount = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private int _successCount;
+
+        public int SuccessCount
+        {
+            get { return _successCount; }
+            set
+            {
+                _successCount = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private int _errorCount;
+
+        public int ErrorCount
+        {
+            get { return _errorCount; }
+            set
+            {
+                _errorCount = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private int _skippedCount;
+
+        public int SkippedCount
+        {
+            get { return _skippedCount; }
+            set
+            {
+                _skippedCount = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        private int _pendingCount;
+
+        public int PendingCount
+        {
+            get { return _pendingCount; }
+            set
+            {
+                _pendingCount = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>Yeni bir işlem başlarken durum panelini sıfırlar.</summary>
+        private void ResetStatus(string text)
+        {
+            QueuedCount = 0;
+            SuccessCount = 0;
+            ErrorCount = 0;
+            SkippedCount = 0;
+            PendingCount = 0;
+
+            StatusText = text;
+            StatusBrush = Brushes.DodgerBlue;
+        }
+
+        private void SetStatus(string text, bool isFinished, bool hasError)
+        {
+            StatusText = text;
+
+            StatusBrush = !isFinished
+                ? Brushes.DodgerBlue
+                : hasError
+                    ? Brushes.OrangeRed
+                    : Brushes.LimeGreen;
+        }
+        #endregion
+
+        #region liste kopyalama
+        /// <summary>Sağ tuş menüsündeki "Kopyala": seçili satır(lar)ı panoya alır.</summary>
+        private void CopySelected_Click(object sender, RoutedEventArgs e)
+        {
+            ListBox listBox = GetContextMenuListBox(sender);
+
+            if (listBox == null || listBox.SelectedItems.Count == 0)
+            {
+                return;
+            }
+
+            CopyToClipboard(listBox.SelectedItems.Cast<object>());
+        }
+
+        /// <summary>Sağ tuş menüsündeki "Tümünü Kopyala": listedeki bütün satırları panoya alır.</summary>
+        private void CopyAll_Click(object sender, RoutedEventArgs e)
+        {
+            ListBox listBox = GetContextMenuListBox(sender);
+
+            if (listBox == null || listBox.Items.Count == 0)
+            {
+                return;
+            }
+
+            CopyToClipboard(listBox.Items.Cast<object>());
+        }
+
+        /// <summary>Listelerde Ctrl+C ile de kopyalanabilsin.</summary>
+        private void ResultList_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.C || (Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.Control)
+            {
+                return;
+            }
+
+            if (sender is ListBox listBox && listBox.SelectedItems.Count > 0)
+            {
+                CopyToClipboard(listBox.SelectedItems.Cast<object>());
+
+                e.Handled = true;
+            }
+        }
+
+        private static ListBox GetContextMenuListBox(object sender)
+        {
+            if (sender is MenuItem menuItem && menuItem.Parent is ContextMenu contextMenu)
+            {
+                return contextMenu.PlacementTarget as ListBox;
+            }
+
+            return null;
+        }
+
+        private static void CopyToClipboard(IEnumerable<object> items)
+        {
+            string text = string.Join(Environment.NewLine, items.Select(d => d != null ? d.ToString() : ""));
+
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
+
+            try
+            {
+                Clipboard.SetText(text);
+            }
+            catch (Exception)
+            {
+                // Pano başka bir uygulama tarafından kilitlenmiş olabilir; kopyalama yapılamazsa sessizce geç.
+            }
+        }
+        #endregion
 
         /// <summary>Arka plan migration işinin durumu sorgulanırken kullanılan bekleyen iş kaydı.</summary>
         private class DbtMigrateJobItem
@@ -477,6 +648,8 @@ namespace Dbt_Migrate
         {
             string statusUrl = $"{apiBaseUrl}/master/dbt-migrate-status";
 
+            ResetStatus($"{operationName} - Başladı");
+
             ErrorListe = new ObservableCollection<string>();
 
             Liste = new ObservableCollection<string>();
@@ -509,6 +682,16 @@ namespace Dbt_Migrate
 
                 _operation = $"{operationName} - {phase} | Kuyruğa alınan: {queuedCount} | Başarılı: {successCount} | Hatalı: {errorCount}{skipped} | Bekleyen: {pending.Count}";
                 RaisePropertyChanged(nameof(Operation));
+
+                QueuedCount = queuedCount;
+                SuccessCount = successCount;
+                ErrorCount = errorCount;
+                SkippedCount = skippedCount;
+                PendingCount = pending.Count;
+
+                bool isFinished = phase == FinishedPhase;
+
+                SetStatus($"{operationName} - {phase}", isFinished, errorCount > 0);
             }
 
             void ScrollListToEnd()
@@ -536,7 +719,7 @@ namespace Dbt_Migrate
             {
                 Liste.Add("         işlenecek veritabanı bulunamadı - Start kutusunu kontrol edin (0 = Dbt_Temp)");
                 ScrollListToEnd();
-                UpdateOperation("Tamamlandı");
+                UpdateOperation(FinishedPhase);
 
                 return;
             }
@@ -686,7 +869,7 @@ namespace Dbt_Migrate
             ScrollListToEnd();
             RaisePropertyChanged(nameof(Liste));
 
-            UpdateOperation("Tamamlandı");
+            UpdateOperation(FinishedPhase);
         }
 
         /// <summary>
@@ -759,6 +942,8 @@ namespace Dbt_Migrate
             int successCount = 0;
             int errorCount = 0;
 
+            ResetStatus($"{operationName} - Başladı");
+
             List<PackTarget> targets = await GetPackTargetsAsync(apiBaseUrl);
 
             if (!targets.Any())
@@ -766,8 +951,12 @@ namespace Dbt_Migrate
                 Liste.Add("         işlenecek veritabanı bulunamadı - Start kutusunu kontrol edin (0 = Dbt_Temp)");
                 RaisePropertyChanged(nameof(Liste));
 
+                SetStatus($"{operationName} - işlenecek veritabanı bulunamadı", true, true);
+
                 return;
             }
+
+            QueuedCount = targets.Count;
 
             async Task UpdateOperationAsync(string text)
             {
@@ -788,6 +977,10 @@ namespace Dbt_Migrate
                     _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
                     RaisePropertyChanged(nameof(Operation));
 
+                    SuccessCount = Volatile.Read(ref successCount);
+                    PendingCount = targets.Count - SuccessCount - ErrorCount;
+                    SetStatus($"{operationName} - Devam ediyor", false, ErrorCount > 0);
+
                     list.SelectedIndex = list.Items.Count - 1;
                     list.ScrollIntoView(list.SelectedItem);
                 });
@@ -802,6 +995,10 @@ namespace Dbt_Migrate
                     RaisePropertyChanged(nameof(ErrorListe));
                     _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
                     RaisePropertyChanged(nameof(Operation));
+
+                    ErrorCount = Volatile.Read(ref errorCount);
+                    PendingCount = targets.Count - SuccessCount - ErrorCount;
+                    SetStatus($"{operationName} - Devam ediyor", false, true);
 
                     errors.SelectedIndex = errors.Items.Count - 1;
                     errors.ScrollIntoView(errors.SelectedItem);
@@ -860,6 +1057,9 @@ namespace Dbt_Migrate
                 list.SelectedIndex = list.Items.Count - 1;
                 list.ScrollIntoView(list.SelectedItem);
                 RaisePropertyChanged(nameof(Liste));
+
+                PendingCount = 0;
+                SetStatus($"{operationName} - {FinishedPhase}", true, errorCount > 0);
             });
 
             await UpdateOperationAsync($"{operationName} - Tamamlandı | Başarılı: {successCount} | Hatalı: {errorCount}");
@@ -904,9 +1104,12 @@ namespace Dbt_Migrate
             }
 
             string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
+            string operationName = cmbOperation.Text;
 
             string apiBaseUrl = GetApiBaseUrl(cText);
             string url = $"{apiBaseUrl}/dbtRenewal/updateSalerPackCompanies";
+
+            ResetStatus($"{operationName} - Başladı");
 
             ErrorListe = new ObservableCollection<string>();
 
@@ -927,8 +1130,13 @@ namespace Dbt_Migrate
                 Liste.Add("         işlenecek veritabanı bulunamadı - Start kutusunu kontrol edin (0 = Dbt_Temp)");
                 RaisePropertyChanged(nameof(Liste));
 
+                SetStatus($"{operationName} - işlenecek veritabanı bulunamadı", true, true);
+
                 return;
             }
+
+            QueuedCount = targets.Count;
+            PendingCount = targets.Count;
 
             foreach (PackTarget target in targets)
             {
@@ -941,7 +1149,12 @@ namespace Dbt_Migrate
 
                 string url1 = $"{url}/{target.PackNo}/{docStartDate.Text}/{docEndDate.Text}";
 
-                Operation = $"{cmbOperation.Text} - {url1}";
+                // Operation property'sinin setter'ı ErrorListe'yi sıfırlıyor; döngü içinde onu kullanmak
+                // hatalı listesini her turda siliyordu.
+                _operation = $"{operationName} - {url1}";
+                RaisePropertyChanged(nameof(Operation));
+
+                SetStatus($"{operationName} - Devam ediyor ({i})", false, ErrorCount > 0);
 
                 HttpResponseMessage response = null;
 
@@ -964,6 +1177,7 @@ namespace Dbt_Migrate
                             list.SelectedIndex = list.Items.Count - 1;
                             list.ScrollIntoView(list.SelectedItem);
 
+                            ++SuccessCount;
 
                             await Task.Delay(500);
                         }
@@ -975,6 +1189,8 @@ namespace Dbt_Migrate
                             errors.ItemsSource = ErrorListe;
 
                             RaisePropertyChanged(nameof(ErrorListe));
+
+                            ++ErrorCount;
 
                             await Task.Delay(500);
                         }
@@ -990,6 +1206,8 @@ namespace Dbt_Migrate
 
                         RaisePropertyChanged(nameof(ErrorListe));
 
+                        ++ErrorCount;
+
                         await Task.Delay(500);
                     }
                 }
@@ -1004,10 +1222,13 @@ namespace Dbt_Migrate
 
                     errors.ItemsSource = ErrorListe;
 
+                    ++ErrorCount;
+
                     await Task.Delay(500);
 
                 }
 
+                PendingCount = targets.Count - SuccessCount - ErrorCount;
 
                 client.Dispose();
             }
@@ -1019,6 +1240,9 @@ namespace Dbt_Migrate
             list.SelectedIndex = list.Items.Count - 1;
             list.ScrollIntoView(list.SelectedItem);
             RaisePropertyChanged(nameof(Liste));
+
+            PendingCount = 0;
+            SetStatus($"{operationName} - {FinishedPhase}", true, ErrorCount > 0);
         }
 
 
@@ -1400,19 +1624,24 @@ namespace Dbt_Migrate
                 var responseContent = await response.Content.ReadAsStringAsync();
 
                 var migs = JsonSerializer.Deserialize<List<string>>(responseContent);
-                if (migs.Any())
+                if (migs != null && migs.Any())
                 {
                     DbtMigrations = new ObservableCollection<string>(migs);
-                    Liste.Add("Dbt Migrations ok");
+                    cmbDbtMigrate.ItemsSource = DbtMigrations;
+
+                    // Liste zaman damgalı id'ler yeniden eskiye gelir; en güncel migration hazır seçili olur.
+                    cmbDbtMigrate.SelectedIndex = 0;
+
+                    Liste.Add($"Dbt Migrations ok - {DbtMigrations.Count} adet (seçili: {cmbDbtMigrate.Text})");
                 }
                 else
                 {
                     DbtMigrations = new ObservableCollection<string>();
+                    cmbDbtMigrate.ItemsSource = DbtMigrations;
+
                     Liste.Add("Dbt Migrations not reading !..");
                     Liste.Add(responseContent);
                 }
-
-                cmbDbtMigrate.ItemsSource = DbtMigrations;
 
                 list.ItemsSource = Liste;
 

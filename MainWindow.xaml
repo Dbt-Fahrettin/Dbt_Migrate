@@ -54,6 +54,7 @@
             <RowDefinition Height="60" />
             <RowDefinition Height="30" />
             <RowDefinition />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Grid.ColumnDefinitions>
@@ -278,7 +279,7 @@
                         Margin="10,5"
                         Height="25"
                         VerticalAlignment="Center"
-                        Click="GetMigrations_Click" />
+                        Click="GetDbtMigrations_Click" />
 
                 <TextBlock Text="Dbt Migrate Name"
                            HorizontalAlignment="Left"
@@ -583,31 +584,134 @@
                        Foreground="DeepSkyBlue" />
         </StackPanel>
 
-        <Grid Grid.Row="5" Grid.ColumnSpan="4">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition />
-                <ColumnDefinition Width="2" />
-                <ColumnDefinition />
-            </Grid.ColumnDefinitions>
+        <TabControl x:Name="resultTabs"
+                    Grid.Row="5"
+                    Grid.ColumnSpan="4"
+                    Margin="5,0,5,3">
 
-            <Border BorderThickness="2"
-                    BorderBrush="LimeGreen"
-                    CornerRadius="5">
-                <ListBox x:Name="list"
-                         HorizontalAlignment="Stretch"
-                         VerticalAlignment="Stretch" />
-            </Border>
+            <TabItem x:Name="tabDone">
+                <TabItem.Header>
+                    <TextBlock>
+                        <Run Text="Tamamlananlar" />
+                        <Run Text="{Binding SuccessCount, StringFormat=({0})}"
+                             FontWeight="Bold"
+                             Foreground="Green" />
+                    </TextBlock>
+                </TabItem.Header>
 
-            <Border Grid.Column="2"
-                    BorderThickness="2"
-                    BorderBrush="red"
-                    CornerRadius="5">
-                <ListBox x:Name="errors"
-                         HorizontalAlignment="Stretch"
-                         VerticalAlignment="Stretch"
-                         MouseDoubleClick="errors_MouseDoubleClick" />
-            </Border>
-        </Grid>
+                <Border BorderThickness="2"
+                        BorderBrush="LimeGreen"
+                        CornerRadius="5">
+                    <ListBox x:Name="list"
+                             HorizontalAlignment="Stretch"
+                             VerticalAlignment="Stretch"
+                             HorizontalContentAlignment="Left"
+                             SelectionMode="Extended"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             PreviewKeyDown="ResultList_PreviewKeyDown">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Kopyala (Ctrl+C)" Click="CopySelected_Click" />
+                                <MenuItem Header="Tümünü Kopyala" Click="CopyAll_Click" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                    </ListBox>
+                </Border>
+            </TabItem>
+
+            <TabItem x:Name="tabErrors">
+                <TabItem.Header>
+                    <TextBlock>
+                        <Run Text="Hatalılar" />
+                        <Run Text="{Binding ErrorCount, StringFormat=({0})}"
+                             FontWeight="Bold"
+                             Foreground="Red" />
+                    </TextBlock>
+                </TabItem.Header>
+
+                <Border BorderThickness="2"
+                        BorderBrush="Red"
+                        CornerRadius="5">
+                    <ListBox x:Name="errors"
+                             HorizontalAlignment="Stretch"
+                             VerticalAlignment="Stretch"
+                             HorizontalContentAlignment="Left"
+                             SelectionMode="Extended"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             MouseDoubleClick="errors_MouseDoubleClick"
+                             PreviewKeyDown="ResultList_PreviewKeyDown">
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Kopyala (Ctrl+C)" Click="CopySelected_Click" />
+                                <MenuItem Header="Tümünü Kopyala" Click="CopyAll_Click" />
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                    </ListBox>
+                </Border>
+            </TabItem>
+        </TabControl>
+
+        <Border Grid.Row="6"
+                Grid.ColumnSpan="4"
+                Margin="5,0,5,5"
+                Padding="8,6"
+                CornerRadius="4"
+                Background="#F7F7F7"
+                BorderBrush="#DDDDDD"
+                BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Ellipse Width="12"
+                         Height="12"
+                         Margin="0,0,8,0"
+                         VerticalAlignment="Center"
+                         Fill="{Binding StatusBrush}" />
+
+                <TextBlock Grid.Column="1"
+                           VerticalAlignment="Center"
+                           FontWeight="DemiBold"
+                           TextTrimming="CharacterEllipsis"
+                           Text="{Binding StatusText}" />
+
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="Kuyruğa alınan:" />
+                    <TextBlock Text="{Binding QueuedCount}"
+                               FontWeight="Bold"
+                               Margin="4,0,14,0" />
+
+                    <TextBlock Text="Başarılı:" />
+                    <TextBlock Text="{Binding SuccessCount}"
+                               FontWeight="Bold"
+                               Foreground="Green"
+                               Margin="4,0,14,0" />
+
+                    <TextBlock Text="Hatalı:" />
+                    <TextBlock Text="{Binding ErrorCount}"
+                               FontWeight="Bold"
+                               Foreground="Red"
+                               Margin="4,0,14,0" />
+
+                    <TextBlock Text="Atlanan:" />
+                    <TextBlock Text="{Binding SkippedCount}"
+                               FontWeight="Bold"
+                               Foreground="DarkOrange"
+                               Margin="4,0,14,0" />
+
+                    <TextBlock Text="Bekleyen:" />
+                    <TextBlock Text="{Binding PendingCount}"
+                               FontWeight="Bold"
+                               Foreground="DodgerBlue"
+                               Margin="4,0,0,0" />
+                </StackPanel>
+            </Grid>
+        </Border>
 
 
 

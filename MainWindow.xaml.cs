@@ -271,169 +271,458 @@ namespace Dbt_Migrate
             }
         }
 
+        /// <summary>Arka plan migration işinin durumu sorgulanırken kullanılan bekleyen iş kaydı.</summary>
+        private class DbtMigrateJobItem
+        {
+            /// <summary>URL'de gidecek paket değeri ("0" => Dbt_Temp).</summary>
+            public string PackNo { get; set; }
+
+            /// <summary>Listede gösterilecek ad ("Dbt_500104" / "Dbt_Temp").</summary>
+            public string DisplayName { get; set; }
+
+            public string JobId { get; set; }
+
+            /// <summary>Liste içindeki satır indeksi — iş bitince o satır yerinde güncellenir.</summary>
+            public int LineIndex { get; set; }
+        }
+
+        /// <summary>Ekrandaki start/end kutularından üretilen işlenecek veritabanı hedefi.</summary>
+        private class PackTarget
+        {
+            /// <summary>URL'de gidecek paket değeri ("0" => sunucu tarafında Dbt_Temp).</summary>
+            public string PackNo { get; set; }
+
+            public string DisplayName { get; set; }
+        }
+
+        /// <summary>api/master/dbt-migrate-all-bg yanıtı.</summary>
+        private class DbtMigrateEnqueueResult
+        {
+            public bool IsOk { get; set; }
+
+            public int PackNoStarting { get; set; }
+
+            public string MigrationId { get; set; }
+
+            public string JobId { get; set; }
+
+            public string StatusUrl { get; set; }
+
+            public string Message { get; set; }
+        }
+
+        /// <summary>api/master/dbt-migrate-status yanıtı.</summary>
+        private class DbtMigrateJobStatus
+        {
+            public string JobId { get; set; }
+
+            public string State { get; set; }
+
+            public bool IsFound { get; set; }
+
+            public bool IsFinished { get; set; }
+
+            public bool IsSucceeded { get; set; }
+
+            public int OkCount { get; set; }
+
+            public int FailCount { get; set; }
+
+            public int SkippedCount { get; set; }
+
+            public List<string> Failures { get; set; }
+
+            public string Message { get; set; }
+
+            public string Error { get; set; }
+        }
+
+        /// <summary>Seçili servisin api kökü (örn. https://hw.unideva.com/svc/api).</summary>
+        private string GetApiBaseUrl(string cText)
+        {
+            if (cText == "Local")
+            {
+                return @"http://localhost:44305/api";
+            }
+
+            if (cText == "Pre Test")
+            {
+                return @"http://devatek.deva.zone/svc/api";
+            }
+
+            if (cText == "Test" || cText == "PreProd")
+            {
+                return @"https://test.unideva.com/svc/api";
+            }
+
+            if (cText == "Prod")
+            {
+                return @"https://hw.unideva.com/svc/api";
+            }
+
+            return "";
+        }
+
+        /// <summary>Prod seçiliyse onay ister; diğer ortamlarda doğrudan geçer.</summary>
+        private bool ConfirmProd(string cText)
+        {
+            if (cText != "Prod")
+            {
+                return true;
+            }
+
+            MessageBoxResult messageBoxResult = System.Windows.MessageBox.Show("Are you sure?", "Confirmation",
+                System.Windows.MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+
+            return messageBoxResult == MessageBoxResult.Yes;
+        }
+
+        /// <summary>Sunucudan Dbt_{prefix}% ile eşleşen veritabanı adlarını okur.</summary>
+        private async Task<List<string>> GetDbtDatNamesAsync(string apiBaseUrl, string prefix)
+        {
+            try
+            {
+                using HttpClient client = new() { Timeout = TimeSpan.FromMinutes(2) };
+
+                HttpResponseMessage response = await client.GetAsync($"{apiBaseUrl}/master/get-dbtdatnames/{prefix}");
+
+                if (response.StatusCode != HttpStatusCode.OK)
+                {
+                    return new List<string>();
+                }
+
+                string responseContent = await response.Content.ReadAsStringAsync();
+
+                return JsonSerializer.Deserialize<List<string>>(responseContent) ?? new List<string>();
+            }
+            catch (Exception)
+            {
+                return new List<string>();
+            }
+        }
+
+        /// <summary>
+        /// Start/End kutularına göre işlenecek hedefleri üretir:
+        /// - Start boş veya sayı değil: boş liste (çağıran uyarır)
+        /// - Start = 0: tek hedef Dbt_Temp (sunucu tarafı packNo 0'ı Dbt_Temp'e çevirir)
+        /// - End boş/geçersiz: Start ile BAŞLAYAN paketler (prefix). Önce yüklü DatNames'e bakar,
+        ///   yoksa get-dbtdatnames ile sunucudan çeker — böylece End yazmamak hata vermez.
+        /// - End dolu: Start..End aralığı (DatNames yüklüyse var olmayan paketler atlanır)
+        /// </summary>
+        private async Task<List<PackTarget>> GetPackTargetsAsync(string apiBaseUrl)
+        {
+            List<PackTarget> targets = new();
+
+            string startText = (tbstart.Text ?? "").Trim();
+
+            if (!int.TryParse(startText, out int start))
+            {
+                return targets;
+            }
+
+            if (start == 0)
+            {
+                targets.Add(new PackTarget { PackNo = "0", DisplayName = "Dbt_Temp", });
+
+                return targets;
+            }
+
+            string endText = (tbend.Text ?? "").Trim();
+
+            if (int.TryParse(endText, out int end) && end >= start)
+            {
+                for (int i = start; i <= end; i++)
+                {
+                    if (DatNames != null && DatNames.Any() && !DatNames.Contains($"Dbt_{i}"))
+                    {
+                        continue;
+                    }
+
+                    targets.Add(new PackTarget { PackNo = i.ToString(), DisplayName = $"Dbt_{i}", });
+                }
+
+                return targets;
+            }
+
+            List<string> datNames = DatNames != null
+                ? DatNames.Where(d => d.StartsWith($"Dbt_{start}")).ToList()
+                : new List<string>();
+
+            if (!datNames.Any())
+            {
+                datNames = await GetDbtDatNamesAsync(apiBaseUrl, start.ToString());
+            }
+
+            foreach (string datName in datNames.OrderBy(d => d))
+            {
+                string packNo = datName.Replace("Dbt_", "");
+
+                if (packNo.Length == 6 && int.TryParse(packNo, out _))
+                {
+                    targets.Add(new PackTarget { PackNo = packNo, DisplayName = datName, });
+                }
+            }
+
+            return targets;
+        }
+
+        /// <summary>
+        /// Kuyruk + izleme akışı: (1) her hedef için iş kuyruğa alınır ve jobId alınır, (2) işler bitene
+        /// kadar durum sorgulanır; biten hedefin satırı yerinde "tamamlandı" olarak güncellenir, hatalı
+        /// olan hatalı listesine taşınır. Uzun süren migration'larda HttpClient'ın 100 sn'lik timeout'una
+        /// düşülmez. Hem Dbt migration (dbt-migrate-all-bg) hem EF migration (migrate-bg) için kullanılır.
+        /// </summary>
+        private async Task RunQueuedOperationAsync(string operationName, string headerText, string apiBaseUrl,
+            List<PackTarget> targets, Func<PackTarget, string> enqueueUrlBuilder)
+        {
+            string statusUrl = $"{apiBaseUrl}/master/dbt-migrate-status";
+
+            ErrorListe = new ObservableCollection<string>();
+
+            Liste = new ObservableCollection<string>();
+            Liste.Add("         *********************      ");
+            Liste.Add($"              Başladı - {headerText}");
+            Liste.Add("         *********************      ");
+            list.ItemsSource = Liste;
+            errors.ItemsSource = ErrorListe;
+
+            RaisePropertyChanged(nameof(Liste));
+            RaisePropertyChanged(nameof(ErrorListe));
+
+            int queuedCount = 0;
+            int successCount = 0;
+            int errorCount = 0;
+            int skippedCount = 0;
+
+            List<DbtMigrateJobItem> pending = new();
+
+            JsonSerializerOptions jsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+            // Kuyruğa alma ve durum sorgusu anında döner; uzun bekleyen istek kalmadı.
+            using var client = new HttpClient();
+            client.Timeout = TimeSpan.FromMinutes(2);
+            client.DefaultRequestHeaders.Add("Connection", "keep-alive");
+
+            void UpdateOperation(string phase)
+            {
+                string skipped = skippedCount > 0 ? $" | Atlanan: {skippedCount}" : "";
+
+                _operation = $"{operationName} - {phase} | Kuyruğa alınan: {queuedCount} | Başarılı: {successCount} | Hatalı: {errorCount}{skipped} | Bekleyen: {pending.Count}";
+                RaisePropertyChanged(nameof(Operation));
+            }
+
+            void ScrollListToEnd()
+            {
+                if (list.Items.Count > 0)
+                {
+                    list.SelectedIndex = list.Items.Count - 1;
+                    list.ScrollIntoView(list.SelectedItem);
+                }
+            }
+
+            void AddError(string message)
+            {
+                ErrorListe.Add(message);
+                RaisePropertyChanged(nameof(ErrorListe));
+
+                if (errors.Items.Count > 0)
+                {
+                    errors.SelectedIndex = errors.Items.Count - 1;
+                    errors.ScrollIntoView(errors.SelectedItem);
+                }
+            }
+
+            if (targets == null || !targets.Any())
+            {
+                Liste.Add("         işlenecek veritabanı bulunamadı - Start kutusunu kontrol edin (0 = Dbt_Temp)");
+                ScrollListToEnd();
+                UpdateOperation("Tamamlandı");
+
+                return;
+            }
+
+            #region 1) kuyruğa alma
+            foreach (PackTarget target in targets)
+            {
+                string url1 = enqueueUrlBuilder(target);
+
+                HttpResponseMessage response = null;
+
+                try
+                {
+                    response = await client.GetAsync(url1);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    DbtMigrateEnqueueResult result = response.StatusCode == HttpStatusCode.OK && !string.IsNullOrWhiteSpace(responseContent)
+                        ? JsonSerializer.Deserialize<DbtMigrateEnqueueResult>(responseContent, jsonOptions)
+                        : null;
+
+                    if (result != null && !string.IsNullOrWhiteSpace(result.JobId))
+                    {
+                        ++queuedCount;
+
+                        Liste.Add($"{target.DisplayName} --> kuyruğa alındı (jobId: {result.JobId})");
+
+                        pending.Add(new DbtMigrateJobItem
+                        {
+                            PackNo = target.PackNo,
+                            DisplayName = target.DisplayName,
+                            JobId = result.JobId,
+                            LineIndex = Liste.Count - 1,
+                        });
+                    }
+                    else
+                    {
+                        ++errorCount;
+
+                        Liste.Add($"{target.DisplayName} --> kuyruğa alınamadı");
+                        AddError($"{target.DisplayName} - Status Code: {response.StatusCode} -- {responseContent}");
+                    }
+                }
+                catch (Exception exx)
+                {
+                    string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
+
+                    ++errorCount;
+
+                    Liste.Add($"{target.DisplayName} --> kuyruğa alınamadı");
+                    AddError($"{target.DisplayName} - Status Code: {response?.StatusCode} -- {error}");
+                }
+
+                UpdateOperation("Kuyruğa alınıyor");
+                ScrollListToEnd();
+            }
+
+            Liste.Add($"         {queuedCount} adet iş kuyruğa alındı, durum izleniyor...");
+            ScrollListToEnd();
+            #endregion
+
+            #region 2) durum izleme
+            while (pending.Any())
+            {
+                await Task.Delay(5000);
+
+                foreach (DbtMigrateJobItem item in pending.ToList())
+                {
+                    DbtMigrateJobStatus status = null;
+
+                    try
+                    {
+                        HttpResponseMessage response = await client.GetAsync($"{statusUrl}/{item.JobId}");
+                        string responseContent = await response.Content.ReadAsStringAsync();
+
+                        if (response.StatusCode == HttpStatusCode.OK && !string.IsNullOrWhiteSpace(responseContent))
+                        {
+                            status = JsonSerializer.Deserialize<DbtMigrateJobStatus>(responseContent, jsonOptions);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Geçici ağ/servis hatası: iş sunucuda koşmaya devam ediyor, sonraki turda yeniden sorulur.
+                    }
+
+                    if (status == null)
+                    {
+                        continue;
+                    }
+
+                    if (!status.IsFound)
+                    {
+                        // Hangfire kaydı bulunamadı (silinmiş/temizlenmiş) — işin akıbeti bilinmiyor.
+                        pending.Remove(item);
+                        ++errorCount;
+
+                        Liste[item.LineIndex] = $"{item.DisplayName} --> durum bulunamadı (jobId: {item.JobId})";
+                        AddError($"{item.DisplayName} - durum bulunamadı (jobId: {item.JobId}) -- Hangfire panelinden kontrol edin");
+
+                        continue;
+                    }
+
+                    if (!status.IsFinished)
+                    {
+                        Liste[item.LineIndex] = $"{item.DisplayName} --> {status.State} | {status.Message}";
+
+                        continue;
+                    }
+
+                    pending.Remove(item);
+
+                    if (status.IsSucceeded && status.SkippedCount > 0 && status.OkCount == 0)
+                    {
+                        ++skippedCount;
+
+                        Liste[item.LineIndex] = $"{item.DisplayName} --> atlandı (migration uygulanacak veritabanı bulunamadı)";
+                    }
+                    else if (status.IsSucceeded)
+                    {
+                        ++successCount;
+
+                        Liste[item.LineIndex] = $"{item.DisplayName} --> tamamlandı | {status.Message}";
+                    }
+                    else
+                    {
+                        ++errorCount;
+
+                        string detail = status.Failures != null && status.Failures.Any()
+                            ? string.Join(" | ", status.Failures)
+                            : status.Error;
+
+                        Liste[item.LineIndex] = $"{item.DisplayName} --> HATALI | {status.Message}";
+                        AddError($"{item.DisplayName} - {status.State} -- {status.Message} {detail}");
+                    }
+                }
+
+                UpdateOperation("İzleniyor");
+            }
+            #endregion
+
+            string skippedText = skippedCount > 0 ? $" - Atlanan: {skippedCount}" : "";
+
+            Liste.Add("         *********************      ");
+            Liste.Add($"              Tamamlandı - Kuyruğa alınan: {queuedCount} - Başarılı: {successCount} - Hatalı: {errorCount}{skippedText}");
+            Liste.Add("         *********************      ");
+            Liste.Add("         ");
+            Liste.Add("         ");
+            ScrollListToEnd();
+            RaisePropertyChanged(nameof(Liste));
+
+            UpdateOperation("Tamamlandı");
+        }
+
+        /// <summary>
+        /// Dbt migration'ı sunucuda Hangfire kuyruğunda koşturur (dbt-migrate-all-bg) ve durumunu izler.
+        /// Start ile başlayan paketler; End boşsa prefix modu, Start 0 ise Dbt_Temp.
+        /// </summary>
         public async Task DbtMigrate()
         {
             string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
             string operationName = cmbOperation.Text;
             string dbtMigrationName = cmbDbtMigrate.Text;
 
-            string url = "";
+            if (string.IsNullOrWhiteSpace(dbtMigrationName))
+            {
+                _ = System.Windows.MessageBox.Show("Dbt Migrate Name seçilmedi!", "Dbt-Migrate", System.Windows.MessageBoxButton.OK, MessageBoxImage.Warning);
 
-            if (cText == "Local")
-            {
-                url = @$"http://localhost:44305/api/master/dbt-migrate-all/";
-            }
-            else if (cText == "Pre Test")
-            {
-                url = @$"http://devatek.deva.zone/svc/api/master/dbt-migrate-all/";
-            }
-            else if (cText == "Test")
-            {
-                url = $@"https://test.unideva.com/svc/api/master/dbt-migrate-all/";
-            }
-            else if (cText == "PreProd")
-            {
-                url = $@"https://test.unideva.com/svc/api/master/dbt-migrate-all/";
-            }
-            else if (cText == "Prod")
-            {
-                MessageBoxResult messageBoxResult = System.Windows.MessageBox.Show("Are you sure?", "Confirmation", System.Windows.MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-                if (messageBoxResult == MessageBoxResult.No)
-                {
-                    return;
-                }
-
-                url = $@"https://hw.unideva.com/svc/api/master/dbt-migrate-all/";
+                return;
             }
 
-            Operation = $"Dbt-Migration - {url}";
-
-            ErrorListe = new ObservableCollection<string>();
-
-            Liste = new ObservableCollection<string>();
-            Liste.Add("         *********************      ");
-            Liste.Add($"              Başladı - {url}-{urlValue.Text}");
-            Liste.Add("         *********************      ");
-            list.ItemsSource = Liste;
-            errors.ItemsSource = ErrorListe;
-
-            list.SelectedIndex = list.Items.Count - 1;
-            list.ScrollIntoView(list.SelectedItem);
-            RaisePropertyChanged(nameof(Liste));
-            RaisePropertyChanged(nameof(ErrorListe));
-
-            int start = int.Parse(tbstart.Text);
-            int end = int.Parse(tbend.Text) + 1;
-
-            int successCount = 0;
-            int errorCount = 0;
-
-            var indexes = Enumerable.Range(start, end - start)
-                .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
-                .ToList();
-
-            async Task UpdateOperationAsync(string text)
+            if (!ConfirmProd(cText))
             {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    _operation = text;
-                    RaisePropertyChanged(nameof(Operation));
-                });
+                return;
             }
 
-            async Task AddSuccessAsync(string message)
-            {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    Liste.Add(message);
-                    list.ItemsSource = Liste;
-                    RaisePropertyChanged(nameof(Liste));
-                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
-                    RaisePropertyChanged(nameof(Operation));
+            string apiBaseUrl = GetApiBaseUrl(cText);
 
-                    list.SelectedIndex = list.Items.Count - 1;
-                    list.ScrollIntoView(list.SelectedItem);
-                });
-            }
+            Operation = $"Dbt-Migration (kuyruk) - {apiBaseUrl}/master/dbt-migrate-all-bg";
 
-            async Task AddErrorAsync(string errorMessage, string? listMessage = null)
-            {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    if (!string.IsNullOrWhiteSpace(listMessage))
-                    {
-                        Liste.Add(listMessage);
-                        list.ItemsSource = Liste;
-                        RaisePropertyChanged(nameof(Liste));
+            List<PackTarget> targets = await GetPackTargetsAsync(apiBaseUrl);
 
-                        list.SelectedIndex = list.Items.Count - 1;
-                        list.ScrollIntoView(list.SelectedItem);
-                    }
-
-                    ErrorListe.Add(errorMessage);
-                    errors.ItemsSource = ErrorListe;
-                    RaisePropertyChanged(nameof(ErrorListe));
-                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
-                    RaisePropertyChanged(nameof(Operation));
-
-                    errors.SelectedIndex = errors.Items.Count - 1;
-                    errors.ScrollIntoView(errors.SelectedItem);
-                });
-            }
-
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("Connection", "keep-alive");
-            client.DefaultRequestHeaders.Add("Keep-Alive", "600");
-
-            await Parallel.ForEachAsync(indexes, new ParallelOptions
-            {
-                MaxDegreeOfParallelism = 6
-            }, async (i, cancellationToken) =>
-            {
-                string url1 = $"{url}{i}/{dbtMigrationName}";
-
-                await UpdateOperationAsync($"{operationName} - Çalışıyor: {url1} | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}");
-
-                HttpResponseMessage response = null;
-
-                try
-                {
-                    response = await client.GetAsync(url1, cancellationToken);
-                    var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-
-                    if (response.StatusCode == HttpStatusCode.OK)
-                    {
-                        Interlocked.Increment(ref successCount);
-                        await AddSuccessAsync($"{i} --> {responseContent}");
-                    }
-                    else
-                    {
-                        string error = !string.IsNullOrWhiteSpace(responseContent) ? responseContent : "";
-                        Interlocked.Increment(ref errorCount);
-                        await AddErrorAsync($"{i} - Status Code: {response.StatusCode} -- {error}", $"{i} --> error");
-                    }
-                }
-                catch (Exception exx)
-                {
-                    string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
-                    Interlocked.Increment(ref errorCount);
-                    await AddErrorAsync($"{i} - Status Code: {response?.StatusCode} -- {error}", $"{i} --> error");
-                }
-            });
-
-            await Dispatcher.InvokeAsync(() =>
-            {
-                Liste.Add("         *********************      ");
-                Liste.Add($"              Tamamlandı - Başarılı: {successCount} - Hatalı: {errorCount}");
-                Liste.Add("         *********************      ");
-                Liste.Add("         ");
-                Liste.Add("         ");
-                list.SelectedIndex = list.Items.Count - 1;
-                list.ScrollIntoView(list.SelectedItem);
-                RaisePropertyChanged(nameof(Liste));
-            });
-
-            await UpdateOperationAsync($"{operationName} - Tamamlandı | Başarılı: {successCount} | Hatalı: {errorCount}");
+            await RunQueuedOperationAsync(
+                operationName,
+                $"{apiBaseUrl}/master/dbt-migrate-all-bg - {dbtMigrationName}",
+                apiBaseUrl,
+                targets,
+                target => $"{apiBaseUrl}/master/dbt-migrate-all-bg/{target.PackNo}/{dbtMigrationName}");
         }
 
         public async Task FunctionRenew()
@@ -443,30 +732,13 @@ namespace Dbt_Migrate
             string selectedFunction = cmbFunctions.Text;
             string sqlFunction = femsql.Text;
 
-            string url = "";
+            if (!ConfirmProd(cText))
+            {
+                return;
+            }
 
-            if (cText == "Pre Test")
-            {
-                url = @$"http://devatek.deva.zone/svc/api/master/set-total-function";
-            }
-            else if (cText == "Test")
-            {
-                url = $@"https://test.unideva.com/svc/api/master/set-total-function";
-            }
-            else if (cText == "PreProd")
-            {
-                url = $@"https://test.unideva.com/svc/api/master/set-total-function";
-            }
-            else if (cText == "Prod")
-            {
-                MessageBoxResult messageBoxResult = System.Windows.MessageBox.Show("Are you sure?", "Confirmation", System.Windows.MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-                if (messageBoxResult == MessageBoxResult.No)
-                {
-                    return;
-                }
-
-                url = $@"https://hw.unideva.com/svc/api/master/set-total-function";
-            }
+            string apiBaseUrl = GetApiBaseUrl(cText);
+            string url = $"{apiBaseUrl}/master/set-total-function";
 
             Operation = $"Set Function - {url}";
 
@@ -484,15 +756,18 @@ namespace Dbt_Migrate
             RaisePropertyChanged(nameof(Liste));
             RaisePropertyChanged(nameof(ErrorListe));
 
-            int start = int.Parse(tbstart.Text);
-            int end = int.Parse(tbend.Text) + 1;
-
             int successCount = 0;
             int errorCount = 0;
 
-            var indexes = Enumerable.Range(start, end - start)
-                .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
-                .ToList();
+            List<PackTarget> targets = await GetPackTargetsAsync(apiBaseUrl);
+
+            if (!targets.Any())
+            {
+                Liste.Add("         işlenecek veritabanı bulunamadı - Start kutusunu kontrol edin (0 = Dbt_Temp)");
+                RaisePropertyChanged(nameof(Liste));
+
+                return;
+            }
 
             async Task UpdateOperationAsync(string text)
             {
@@ -537,14 +812,14 @@ namespace Dbt_Migrate
             client.DefaultRequestHeaders.Add("Connection", "keep-alive");
             client.DefaultRequestHeaders.Add("Keep-Alive", "600");
 
-            await Parallel.ForEachAsync(indexes, new ParallelOptions
+            await Parallel.ForEachAsync(targets, new ParallelOptions
             {
                 MaxDegreeOfParallelism = 6
-            }, async (i, cancellationToken) =>
+            }, async (target, cancellationToken) =>
             {
                 string url1 = !string.IsNullOrWhiteSpace(selectedFunction)
-                    ? $"{url}/{i}/{selectedFunction}"
-                    : $"{url}/{i}/{sqlFunction}";
+                    ? $"{url}/{target.PackNo}/{selectedFunction}"
+                    : $"{url}/{target.PackNo}/{sqlFunction}";
 
                 await UpdateOperationAsync($"{operationName} - Çalışıyor: {url1} | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}");
 
@@ -558,20 +833,20 @@ namespace Dbt_Migrate
                     if (response.StatusCode == HttpStatusCode.OK)
                     {
                         Interlocked.Increment(ref successCount);
-                        await AddSuccessAsync(responseContent);
+                        await AddSuccessAsync($"{target.DisplayName} --> {responseContent}");
                     }
                     else
                     {
                         string error = !string.IsNullOrWhiteSpace(responseContent) ? responseContent : "";
                         Interlocked.Increment(ref errorCount);
-                        await AddErrorAsync($"{i} - Status Code: {response.StatusCode} -- {error}");
+                        await AddErrorAsync($"{target.DisplayName} - Status Code: {response.StatusCode} -- {error}");
                     }
                 }
                 catch (Exception exx)
                 {
                     string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
                     Interlocked.Increment(ref errorCount);
-                    await AddErrorAsync($"{i} - Status Code: {response?.StatusCode} -- {error}");
+                    await AddErrorAsync($"{target.DisplayName} - Status Code: {response?.StatusCode} -- {error}");
                 }
             });
 
@@ -590,161 +865,34 @@ namespace Dbt_Migrate
             await UpdateOperationAsync($"{operationName} - Tamamlandı | Başarılı: {successCount} | Hatalı: {errorCount}");
         }
 
+        /// <summary>
+        /// EF migration'larını (ve onlara bağlı, henüz uygulanmamış Dbt migration'larını) sunucuda
+        /// Hangfire kuyruğunda koşturur (migrate-bg) ve durumunu izler. Sunucu tarafındaki mantık
+        /// senkron <c>migrate</c> ucuyla aynı; yalnız istek beklemez.
+        /// Start ile başlayan paketler; End boşsa prefix modu, Start 0 ise Dbt_Temp.
+        /// </summary>
         public async Task Migrate()
         {
             string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
             string operationName = cmbOperation.Text;
 
-            string url = "";
-
-            if (cText == "Local")
+            if (!ConfirmProd(cText))
             {
-                url = @$"http://localhost:44305/api/master/migrate/";
-            }
-            else if (cText == "Pre Test")
-            {
-                url = @$"http://devatek.deva.zone/svc/api/master/migrate/";
-            }
-            else if (cText == "Test")
-            {
-                url = $@"https://test.unideva.com/svc/api/master/migrate/";
-                //url = @$"https://test.unideva.com/svc/api/master/dbt-rpt-migrate-all/<i>/{urlValue.Text}";
-            }
-            else if (cText == "PreProd")
-            {
-                url = $@"https://test.unideva.com/svc/api/master/migrate/";
-                //url = @$"https://preprod.unideva.com/svc/api/master/dbt-rpt-migrate-all/<i>/{urlValue.Text}";
-            }
-            else if (cText == "Prod")
-            {
-                MessageBoxResult messageBoxResult = System.Windows.MessageBox.Show("Are you sure?", "Confirmation", System.Windows.MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
-                if (messageBoxResult == MessageBoxResult.No)
-                {
-                    return;
-                }
-
-                url = $@"https://hw.unideva.com/svc/api/master/migrate-all/";
-                //url = @$"https://hw.unideva.com/svc/api/master/dbt-rpt-migrate-all/<i>/{urlValue.Text}";
+                return;
             }
 
-            Operation = $"Migration - {url}";
+            string apiBaseUrl = GetApiBaseUrl(cText);
 
-            ErrorListe = new ObservableCollection<string>();
+            Operation = $"Migration (kuyruk) - {apiBaseUrl}/master/migrate-bg";
 
-            Liste = new ObservableCollection<string>();
-            Liste.Add("         *********************      ");
-            Liste.Add($"              Başladı - {url}");
-            Liste.Add("         *********************      ");
-            list.ItemsSource = Liste;
-            errors.ItemsSource = ErrorListe;
+            List<PackTarget> targets = await GetPackTargetsAsync(apiBaseUrl);
 
-            list.SelectedIndex = list.Items.Count - 1;
-            list.ScrollIntoView(list.SelectedItem);
-            RaisePropertyChanged(nameof(Liste));
-            RaisePropertyChanged(nameof(ErrorListe));
-
-            int start = int.Parse(tbstart.Text);
-            int end = int.Parse(tbend.Text) + 1;
-
-            int successCount = 0;
-            int errorCount = 0;
-
-            var indexes = Enumerable.Range(start, (end - start) + 1)
-                .Where(i => DatNames == null || !DatNames.Any() || DatNames.Contains($"Dbt_{i}"))
-                .ToList();
-
-            async Task UpdateOperationAsync(string text)
-            {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    _operation = text;
-                    RaisePropertyChanged(nameof(Operation));
-                });
-            }
-
-            async Task AddSuccessAsync(string message)
-            {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    Liste.Add(message);
-                    list.ItemsSource = Liste;
-                    RaisePropertyChanged(nameof(Liste));
-                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
-                    RaisePropertyChanged(nameof(Operation));
-
-                    list.SelectedIndex = list.Items.Count - 1;
-                    list.ScrollIntoView(list.SelectedItem);
-                });
-            }
-
-            async Task AddErrorAsync(string message)
-            {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    ErrorListe.Add(message);
-                    errors.ItemsSource = ErrorListe;
-                    RaisePropertyChanged(nameof(ErrorListe));
-                    _operation = $"{operationName} - Devam ediyor | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}";
-                    RaisePropertyChanged(nameof(Operation));
-
-                    errors.SelectedIndex = errors.Items.Count - 1;
-                    errors.ScrollIntoView(errors.SelectedItem);
-                });
-            }
-
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("Connection", "keep-alive");
-            client.DefaultRequestHeaders.ConnectionClose = false;
-
-            await Parallel.ForEachAsync(indexes, new ParallelOptions
-            {
-                MaxDegreeOfParallelism = 6
-            }, async (i, cancellationToken) =>
-            {
-                string url1 = $"{url}/{i}";
-
-                await UpdateOperationAsync($"{operationName} - Çalışıyor: {url1} | Başarılı: {Volatile.Read(ref successCount)} | Hatalı: {Volatile.Read(ref errorCount)}");
-
-                HttpResponseMessage response = null;
-
-                try
-                {
-                    response = await client.GetAsync(url1, cancellationToken);
-                    var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-
-                    if (response.StatusCode == HttpStatusCode.OK)
-                    {
-                        Interlocked.Increment(ref successCount);
-                        await AddSuccessAsync($"{i} - {responseContent} - {DateTime.Now}");
-                    }
-                    else
-                    {
-                        string error = !string.IsNullOrWhiteSpace(responseContent) ? responseContent : "";
-                        Interlocked.Increment(ref errorCount);
-                        await AddErrorAsync($"{i} - Status Code: {response.StatusCode} -- {error}");
-                    }
-                }
-                catch (Exception exx)
-                {
-                    string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
-                    Interlocked.Increment(ref errorCount);
-                    await AddErrorAsync($"{i} - Status Code: {response?.StatusCode} -- {error}");
-                }
-            });
-
-            await Dispatcher.InvokeAsync(() =>
-            {
-                Liste.Add("         *********************      ");
-                Liste.Add($"              Tamamlandı - Başarılı: {successCount} - Hatalı: {errorCount}");
-                Liste.Add("         *********************      ");
-                Liste.Add("         ");
-                Liste.Add("         ");
-                list.SelectedIndex = list.Items.Count - 1;
-                list.ScrollIntoView(list.SelectedItem);
-                RaisePropertyChanged(nameof(Liste));
-            });
-
-            await UpdateOperationAsync($"{operationName} - Tamamlandı | Başarılı: {successCount} | Hatalı: {errorCount}");
+            await RunQueuedOperationAsync(
+                operationName,
+                $"{apiBaseUrl}/master/migrate-bg",
+                apiBaseUrl,
+                targets,
+                target => $"{apiBaseUrl}/master/migrate-bg/{target.PackNo}");
         }
 
         public async Task UpdateSalerIds()
@@ -757,29 +905,8 @@ namespace Dbt_Migrate
 
             string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
 
-            string url = "";
-
-            if (cText == "Local")
-            {
-                url = @$"http://localhost:44305/api/dbtRenewal/updateSalerPackCompanies";
-            }
-            else if (cText == "Pre Test")
-            {
-                url = @$"http://devatek.deva.zone/svc/api/dbtRenewal/updateSalerPackCompanies";
-            }
-            else if (cText == "Test")
-            {
-                url = $@"https://test.unideva.com/svc/api/dbtRenewal/updateSalerPackCompanies";
-            }
-            else if (cText == "PreProd")
-            {
-                url = $@"https://test.unideva.com/svc/api/dbtRenewal/updateSalerPackCompanies";
-            }
-            else if (cText == "Prod")
-            {
-                url = $@"https://hw.unideva.com/svc/api//dbtRenewal/updateSalerPackCompanies";
-            }
-                       
+            string apiBaseUrl = GetApiBaseUrl(cText);
+            string url = $"{apiBaseUrl}/dbtRenewal/updateSalerPackCompanies";
 
             ErrorListe = new ObservableCollection<string>();
 
@@ -793,26 +920,26 @@ namespace Dbt_Migrate
             list.ScrollIntoView(list.SelectedItem);
             RaisePropertyChanged(nameof(Liste));
 
-            int start = int.Parse(tbstart.Text);
-            int end = int.Parse(tbend.Text) + 1;
+            List<PackTarget> targets = await GetPackTargetsAsync(apiBaseUrl);
 
-            for (int i = start; i <= end; i++)
+            if (!targets.Any())
             {
-                if (DatNames != null && DatNames.Any())
-                {
-                    var index = DatNames.IndexOf($"Dbt_{i}");
-                    if (index < 0)
-                    {
-                        continue;
-                    }
-                }
+                Liste.Add("         işlenecek veritabanı bulunamadı - Start kutusunu kontrol edin (0 = Dbt_Temp)");
+                RaisePropertyChanged(nameof(Liste));
+
+                return;
+            }
+
+            foreach (PackTarget target in targets)
+            {
+                string i = target.DisplayName;
 
                 var client = new HttpClient();
                 client.DefaultRequestHeaders.Add("Connection", "keep-alive");
                 client.DefaultRequestHeaders.ConnectionClose = false;
 
 
-                string url1 = $"{url}/{i}/{docStartDate.Text}/{docEndDate.Text}";
+                string url1 = $"{url}/{target.PackNo}/{docStartDate.Text}/{docEndDate.Text}";
 
                 Operation = $"{cmbOperation.Text} - {url1}";
 

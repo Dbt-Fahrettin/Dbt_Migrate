@@ -284,6 +284,7 @@ namespace Dbt_Migrate
             }
         }
 
+        // Sayaçlar iş başına güncellendiği için setter'lar değişmeyen değerde bildirim üretmez.
         private int _queuedCount;
 
         public int QueuedCount
@@ -291,6 +292,11 @@ namespace Dbt_Migrate
             get { return _queuedCount; }
             set
             {
+                if (_queuedCount == value)
+                {
+                    return;
+                }
+
                 _queuedCount = value;
                 RaisePropertyChanged();
             }
@@ -303,6 +309,11 @@ namespace Dbt_Migrate
             get { return _successCount; }
             set
             {
+                if (_successCount == value)
+                {
+                    return;
+                }
+
                 _successCount = value;
                 RaisePropertyChanged();
             }
@@ -315,6 +326,11 @@ namespace Dbt_Migrate
             get { return _errorCount; }
             set
             {
+                if (_errorCount == value)
+                {
+                    return;
+                }
+
                 _errorCount = value;
                 RaisePropertyChanged();
             }
@@ -327,6 +343,11 @@ namespace Dbt_Migrate
             get { return _skippedCount; }
             set
             {
+                if (_skippedCount == value)
+                {
+                    return;
+                }
+
                 _skippedCount = value;
                 RaisePropertyChanged();
             }
@@ -339,6 +360,11 @@ namespace Dbt_Migrate
             get { return _pendingCount; }
             set
             {
+                if (_pendingCount == value)
+                {
+                    return;
+                }
+
                 _pendingCount = value;
                 RaisePropertyChanged();
             }
@@ -457,11 +483,35 @@ namespace Dbt_Migrate
             public int LineIndex { get; set; }
         }
 
+        /// <summary>
+        /// Kuyruğa alma sürerken izlemenin başlaması için gereken en az iş sayısı: ilk paketler koşmaya
+        /// başlamışken kuyruğa almanın bitmesini beklemek, tamamlananların dakikalarca görünmemesine
+        /// yol açıyordu.
+        /// </summary>
+        private const int MonitorStartThreshold = 50;
+
+        /// <summary>Tek toplu durum isteğinde sorulacak jobId sayısı (sunucu tarafı sınırı 500).</summary>
+        private const int StatusBatchSize = 200;
+
+        /// <summary>İzleme turları arasındaki bekleme (ms).</summary>
+        private const int MonitorRoundDelayMs = 3000;
+
+        /// <summary>
+        /// Akış kontrolü: bekleyen iş sayısı bu sınıra ulaştığında kuyruğa alma duraklar, işler bitip
+        /// sayı düşünce devam eder. Hangfire kuyruğunun binlerce işle şişmesini ve iptal etmek
+        /// istediğinde geri dönüşü olmayan bir yığın oluşmasını engeller.
+        /// (İzleme eşiğinden büyük olmalı; aksi hâlde izleme başlamadan kuyruğa alma kilitlenir.)
+        /// </summary>
+        private const int MaxPendingJobs = 200;
+
         /// <summary>Ekrandaki start/end kutularından üretilen işlenecek veritabanı hedefi.</summary>
         private class PackTarget
         {
             /// <summary>URL'de gidecek paket değeri ("0" => sunucu tarafında Dbt_Temp).</summary>
             public string PackNo { get; set; }
+
+            /// <summary>Yalnız aralık modunda dolu: aralığın bitiş paketi.</summary>
+            public string PackNoEnding { get; set; }
 
             public string DisplayName { get; set; }
         }
@@ -646,7 +696,7 @@ namespace Dbt_Migrate
         private async Task RunQueuedOperationAsync(string operationName, string headerText, string apiBaseUrl,
             List<PackTarget> targets, Func<PackTarget, string> enqueueUrlBuilder)
         {
-            string statusUrl = $"{apiBaseUrl}/master/dbt-migrate-status";
+            string statusBulkUrl = $"{apiBaseUrl}/master/dbt-migrate-status-bulk";
 
             ResetStatus($"{operationName} - Başladı");
 
@@ -724,140 +774,27 @@ namespace Dbt_Migrate
                 return;
             }
 
-            #region 1) kuyruğa alma
-            foreach (PackTarget target in targets)
+            bool isEnqueueDone = false;
+            bool isMonitorStarted = false;
+
+            string CurrentPhase()
             {
-                string url1 = enqueueUrlBuilder(target);
-
-                HttpResponseMessage response = null;
-
-                try
+                if (!isEnqueueDone)
                 {
-                    response = await client.GetAsync(url1);
-                    string responseContent = await response.Content.ReadAsStringAsync();
-
-                    DbtMigrateEnqueueResult result = response.StatusCode == HttpStatusCode.OK && !string.IsNullOrWhiteSpace(responseContent)
-                        ? JsonSerializer.Deserialize<DbtMigrateEnqueueResult>(responseContent, jsonOptions)
-                        : null;
-
-                    if (result != null && !string.IsNullOrWhiteSpace(result.JobId))
-                    {
-                        ++queuedCount;
-
-                        Liste.Add($"{target.DisplayName} --> kuyruğa alındı (jobId: {result.JobId})");
-
-                        pending.Add(new DbtMigrateJobItem
-                        {
-                            PackNo = target.PackNo,
-                            DisplayName = target.DisplayName,
-                            JobId = result.JobId,
-                            LineIndex = Liste.Count - 1,
-                        });
-                    }
-                    else
-                    {
-                        ++errorCount;
-
-                        Liste.Add($"{target.DisplayName} --> kuyruğa alınamadı");
-                        AddError($"{target.DisplayName} - Status Code: {response.StatusCode} -- {responseContent}");
-                    }
-                }
-                catch (Exception exx)
-                {
-                    string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
-
-                    ++errorCount;
-
-                    Liste.Add($"{target.DisplayName} --> kuyruğa alınamadı");
-                    AddError($"{target.DisplayName} - Status Code: {response?.StatusCode} -- {error}");
+                    return isMonitorStarted ? "Kuyruğa alınıyor + izleniyor" : "Kuyruğa alınıyor";
                 }
 
-                UpdateOperation("Kuyruğa alınıyor");
-                ScrollListToEnd();
+                return "İzleniyor";
             }
 
-            Liste.Add($"         {queuedCount} adet iş kuyruğa alındı, durum izleniyor...");
-            ScrollListToEnd();
-            #endregion
+            // Kuyruğa alma ve izleme aynı anda koşar: binlerce paketlik listede kuyruğa alma dakikalar
+            // sürüyor, bu sürede biten işlerin listede ve sayaçlarda görünmesi gerekiyor. İki döngü de
+            // UI thread'inin senkronizasyon bağlamında ilerlediği için koleksiyonlar üzerinde kilit
+            // gerekmiyor (await noktalarında sırayla çalışırlar).
+            Task enqueueTask = EnqueueAllAsync();
+            Task monitorTask = MonitorAsync();
 
-            #region 2) durum izleme
-            while (pending.Any())
-            {
-                await Task.Delay(5000);
-
-                foreach (DbtMigrateJobItem item in pending.ToList())
-                {
-                    DbtMigrateJobStatus status = null;
-
-                    try
-                    {
-                        HttpResponseMessage response = await client.GetAsync($"{statusUrl}/{item.JobId}");
-                        string responseContent = await response.Content.ReadAsStringAsync();
-
-                        if (response.StatusCode == HttpStatusCode.OK && !string.IsNullOrWhiteSpace(responseContent))
-                        {
-                            status = JsonSerializer.Deserialize<DbtMigrateJobStatus>(responseContent, jsonOptions);
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        // Geçici ağ/servis hatası: iş sunucuda koşmaya devam ediyor, sonraki turda yeniden sorulur.
-                    }
-
-                    if (status == null)
-                    {
-                        continue;
-                    }
-
-                    if (!status.IsFound)
-                    {
-                        // Hangfire kaydı bulunamadı (silinmiş/temizlenmiş) — işin akıbeti bilinmiyor.
-                        pending.Remove(item);
-                        ++errorCount;
-
-                        Liste[item.LineIndex] = $"{item.DisplayName} --> durum bulunamadı (jobId: {item.JobId})";
-                        AddError($"{item.DisplayName} - durum bulunamadı (jobId: {item.JobId}) -- Hangfire panelinden kontrol edin");
-
-                        continue;
-                    }
-
-                    if (!status.IsFinished)
-                    {
-                        Liste[item.LineIndex] = $"{item.DisplayName} --> {status.State} | {status.Message}";
-
-                        continue;
-                    }
-
-                    pending.Remove(item);
-
-                    if (status.IsSucceeded && status.SkippedCount > 0 && status.OkCount == 0)
-                    {
-                        ++skippedCount;
-
-                        Liste[item.LineIndex] = $"{item.DisplayName} --> atlandı (migration uygulanacak veritabanı bulunamadı)";
-                    }
-                    else if (status.IsSucceeded)
-                    {
-                        ++successCount;
-
-                        Liste[item.LineIndex] = $"{item.DisplayName} --> tamamlandı | {status.Message}";
-                    }
-                    else
-                    {
-                        ++errorCount;
-
-                        string detail = status.Failures != null && status.Failures.Any()
-                            ? string.Join(" | ", status.Failures)
-                            : status.Error;
-
-                        Liste[item.LineIndex] = $"{item.DisplayName} --> HATALI | {status.Message}";
-                        AddError($"{item.DisplayName} - {status.State} -- {status.Message} {detail}");
-                    }
-                }
-
-                UpdateOperation("İzleniyor");
-            }
-            #endregion
+            await Task.WhenAll(enqueueTask, monitorTask);
 
             string skippedText = skippedCount > 0 ? $" - Atlanan: {skippedCount}" : "";
 
@@ -870,6 +807,211 @@ namespace Dbt_Migrate
             RaisePropertyChanged(nameof(Liste));
 
             UpdateOperation(FinishedPhase);
+
+            // ----- kuyruğa alma döngüsü -----
+            async Task EnqueueAllAsync()
+            {
+                foreach (PackTarget target in targets)
+                {
+                    // Akış kontrolü: kuyrukta bekleyen iş sınırı aşıldıysa yeni iş atma, işler eritilsin.
+                    while (pending.Count >= MaxPendingJobs)
+                    {
+                        UpdateOperation($"Kuyruk dolu ({pending.Count}), bekleniyor");
+
+                        await Task.Delay(1000);
+                    }
+
+                    string url1 = enqueueUrlBuilder(target);
+
+                    HttpResponseMessage response = null;
+
+                    try
+                    {
+                        response = await client.GetAsync(url1);
+                        string responseContent = await response.Content.ReadAsStringAsync();
+
+                        DbtMigrateEnqueueResult result = response.StatusCode == HttpStatusCode.OK && !string.IsNullOrWhiteSpace(responseContent)
+                            ? JsonSerializer.Deserialize<DbtMigrateEnqueueResult>(responseContent, jsonOptions)
+                            : null;
+
+                        if (result != null && !string.IsNullOrWhiteSpace(result.JobId))
+                        {
+                            ++queuedCount;
+
+                            Liste.Add($"{target.DisplayName} --> kuyruğa alındı (jobId: {result.JobId})");
+
+                            pending.Add(new DbtMigrateJobItem
+                            {
+                                PackNo = target.PackNo,
+                                DisplayName = target.DisplayName,
+                                JobId = result.JobId,
+                                LineIndex = Liste.Count - 1,
+                            });
+                        }
+                        else
+                        {
+                            ++errorCount;
+
+                            Liste.Add($"{target.DisplayName} --> kuyruğa alınamadı");
+                            AddError($"{target.DisplayName} - Status Code: {response.StatusCode} -- {responseContent}");
+                        }
+                    }
+                    catch (Exception exx)
+                    {
+                        string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
+
+                        ++errorCount;
+
+                        Liste.Add($"{target.DisplayName} --> kuyruğa alınamadı");
+                        AddError($"{target.DisplayName} - Status Code: {response?.StatusCode} -- {error}");
+                    }
+
+                    UpdateOperation(CurrentPhase());
+                    ScrollListToEnd();
+                }
+
+                isEnqueueDone = true;
+
+                Liste.Add($"         {queuedCount} adet iş kuyruğa alındı, durum izleniyor...");
+                ScrollListToEnd();
+            }
+
+            // ----- izleme döngüsü -----
+            async Task MonitorAsync()
+            {
+                // Kuyruğa alma bitmesini beklemeye gerek yok: eşik kadar iş kuyruğa girdiğinde (ya da
+                // kuyruğa alma bittiğinde) izleme başlar, biten işler anında listeden ve sayaçlardan düşer.
+                while (!isEnqueueDone && queuedCount < MonitorStartThreshold)
+                {
+                    await Task.Delay(500);
+                }
+
+                isMonitorStarted = true;
+
+                while (!isEnqueueDone || pending.Any())
+                {
+                    if (!pending.Any())
+                    {
+                        await Task.Delay(500);
+
+                        continue;
+                    }
+
+                    List<DbtMigrateJobItem> snapshot = pending.ToList();
+
+                    for (int i = 0; i < snapshot.Count; i += StatusBatchSize)
+                    {
+                        List<DbtMigrateJobItem> batch = snapshot.Skip(i).Take(StatusBatchSize).ToList();
+
+                        List<DbtMigrateJobStatus> statuses = await GetStatusesAsync(batch.Select(d => d.JobId).ToList());
+
+                        if (statuses == null)
+                        {
+                            // Geçici ağ/servis hatası: işler sunucuda koşmaya devam eder, sonraki turda tekrar sorulur.
+                            continue;
+                        }
+
+                        Dictionary<string, DbtMigrateJobStatus> statusMap = statuses
+                            .Where(d => d != null && !string.IsNullOrWhiteSpace(d.JobId))
+                            .GroupBy(d => d.JobId)
+                            .ToDictionary(g => g.Key, g => g.First());
+
+                        foreach (DbtMigrateJobItem item in batch)
+                        {
+                            if (!statusMap.TryGetValue(item.JobId, out DbtMigrateJobStatus status))
+                            {
+                                continue;
+                            }
+
+                            ApplyStatus(item, status);
+                        }
+
+                        UpdateOperation(CurrentPhase());
+                    }
+
+                    if (!isEnqueueDone || pending.Any())
+                    {
+                        await Task.Delay(MonitorRoundDelayMs);
+                    }
+                }
+            }
+
+            // Tek işin durumunu listeye/sayaçlara yazar; iş bittiyse bekleyenlerden düşer.
+            void ApplyStatus(DbtMigrateJobItem item, DbtMigrateJobStatus status)
+            {
+                if (!status.IsFound)
+                {
+                    // Hangfire kaydı bulunamadı (silinmiş/temizlenmiş) — işin akıbeti bilinmiyor.
+                    pending.Remove(item);
+                    ++errorCount;
+
+                    Liste[item.LineIndex] = $"{item.DisplayName} --> durum bulunamadı (jobId: {item.JobId})";
+                    AddError($"{item.DisplayName} - durum bulunamadı (jobId: {item.JobId}) -- Hangfire panelinden kontrol edin");
+
+                    UpdateOperation(CurrentPhase());
+
+                    return;
+                }
+
+                if (!status.IsFinished)
+                {
+                    Liste[item.LineIndex] = $"{item.DisplayName} --> {status.State} | {status.Message}";
+
+                    return;
+                }
+
+                pending.Remove(item);
+
+                if (status.IsSucceeded && status.SkippedCount > 0 && status.OkCount == 0)
+                {
+                    ++skippedCount;
+
+                    Liste[item.LineIndex] = $"{item.DisplayName} --> atlandı (migration uygulanacak veritabanı bulunamadı)";
+                }
+                else if (status.IsSucceeded)
+                {
+                    ++successCount;
+
+                    Liste[item.LineIndex] = $"{item.DisplayName} --> tamamlandı | {status.Message}";
+                }
+                else
+                {
+                    ++errorCount;
+
+                    string detail = status.Failures != null && status.Failures.Any()
+                        ? string.Join(" | ", status.Failures)
+                        : status.Error;
+
+                    Liste[item.LineIndex] = $"{item.DisplayName} --> HATALI | {status.Message}";
+                    AddError($"{item.DisplayName} - {status.State} -- {status.Message} {detail}");
+                }
+
+                UpdateOperation(CurrentPhase());
+            }
+
+            // Durumlar tek tek değil, toplu uçtan (dbt-migrate-status-bulk) okunur — binlerce iş için
+            // iş başına bir HTTP isteği hem çok yavaş hem de Hangfire deposuna gereksiz yük.
+            async Task<List<DbtMigrateJobStatus>> GetStatusesAsync(List<string> jobIds)
+            {
+                try
+                {
+                    using StringContent content = new(JsonSerializer.Serialize(jobIds), Encoding.UTF8, "application/json");
+                    using HttpResponseMessage response = await client.PostAsync(statusBulkUrl, content);
+
+                    if (response.StatusCode != HttpStatusCode.OK)
+                    {
+                        return null;
+                    }
+
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    return JsonSerializer.Deserialize<List<DbtMigrateJobStatus>>(responseContent, jsonOptions);
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+            }
         }
 
         /// <summary>
@@ -900,12 +1042,63 @@ namespace Dbt_Migrate
 
             List<PackTarget> targets = await GetPackTargetsAsync(apiBaseUrl);
 
+            // Aralık modu: paket başına iş açmak yerine tüm aralık için tek sıralı iş.
+            PackTarget rangeTarget = GetRangeTarget(targets);
+
+            if (rangeTarget != null)
+            {
+                string rangeUrl = $"{apiBaseUrl}/master/dbt-migrate-between-bg/{rangeTarget.PackNo}/{rangeTarget.PackNoEnding}/{dbtMigrationName}";
+
+                await RunQueuedOperationAsync(
+                    operationName,
+                    $"{apiBaseUrl}/master/dbt-migrate-between-bg - {dbtMigrationName}",
+                    apiBaseUrl,
+                    new List<PackTarget> { rangeTarget },
+                    target => rangeUrl);
+
+                return;
+            }
+
             await RunQueuedOperationAsync(
                 operationName,
                 $"{apiBaseUrl}/master/dbt-migrate-all-bg - {dbtMigrationName}",
                 apiBaseUrl,
                 targets,
                 target => $"{apiBaseUrl}/master/dbt-migrate-all-bg/{target.PackNo}/{dbtMigrationName}");
+        }
+
+        /// <summary>
+        /// Aralık modu işaretliyse hedef listesinden tek bir aralık hedefi üretir (ilk ve son paket no).
+        /// Mod kapalıysa, hedef tek ise (ör. Dbt_Temp) ya da paket numarası çözülemiyorsa null döner —
+        /// bu durumda paket başına iş açan normal akış kullanılır.
+        /// </summary>
+        private PackTarget GetRangeTarget(List<PackTarget> targets)
+        {
+            if (chkBetweenMode.IsChecked != true || targets == null || targets.Count < 2)
+            {
+                return null;
+            }
+
+            List<int> packNos = targets
+                .Select(d => int.TryParse(d.PackNo, out int packNo) ? packNo : 0)
+                .Where(d => d > 0)
+                .OrderBy(d => d)
+                .ToList();
+
+            if (!packNos.Any())
+            {
+                return null;
+            }
+
+            int first = packNos.First();
+            int last = packNos.Last();
+
+            return new PackTarget
+            {
+                PackNo = first.ToString(),
+                PackNoEnding = last.ToString(),
+                DisplayName = $"Dbt_{first} - Dbt_{last} (aralık, {targets.Count} db)",
+            };
         }
 
         public async Task FunctionRenew()
@@ -1086,6 +1279,23 @@ namespace Dbt_Migrate
             Operation = $"Migration (kuyruk) - {apiBaseUrl}/master/migrate-bg";
 
             List<PackTarget> targets = await GetPackTargetsAsync(apiBaseUrl);
+
+            // Aralık modu: paket başına iş açmak yerine tüm aralık için tek sıralı iş.
+            PackTarget rangeTarget = GetRangeTarget(targets);
+
+            if (rangeTarget != null)
+            {
+                string rangeUrl = $"{apiBaseUrl}/master/migrate-between-bg/{rangeTarget.PackNo}/{rangeTarget.PackNoEnding}";
+
+                await RunQueuedOperationAsync(
+                    operationName,
+                    $"{apiBaseUrl}/master/migrate-between-bg",
+                    apiBaseUrl,
+                    new List<PackTarget> { rangeTarget },
+                    target => rangeUrl);
+
+                return;
+            }
 
             await RunQueuedOperationAsync(
                 operationName,

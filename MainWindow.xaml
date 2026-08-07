@@ -143,6 +143,16 @@
                     Click="GetMigrations_Click" />
         </StackPanel>
 
+        <CheckBox x:Name="chkBetweenMode"
+                  Grid.Row="2"
+                  Grid.Column="2"
+                  Grid.ColumnSpan="2"
+                  Margin="15,0"
+                  VerticalAlignment="Center"
+                  HorizontalAlignment="Left"
+                  Content="Ağır işler için aralık modu (tek sıralı iş)"
+                  ToolTip="İşaretliyse paket başına ayrı iş açmak yerine Start-End aralığı için tek bir arka plan işi kuyruğa alınır (dbt-migrate-between-bg / migrate-between-bg). Veritabanları o iş içinde sırayla migrate edilir, böylece Postgres'e paralel yük binmez." />
+
         <StackPanel Grid.Row="2"
                     Grid.Column="3"
                     Orientation="Horizontal">

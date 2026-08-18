@@ -1101,6 +1101,392 @@ namespace Dbt_Migrate
             };
         }
 
+        #region migration takip (geçmiş / paket durumu)
+        /// <summary>
+        /// Takip sorguları sunucu tarafında paket paket veritabanı taradığı için (binlerce vt olabilir)
+        /// istek dakikalar sürebilir. Kuyruk gerekmiyor — tek istek, tek yanıt.
+        /// </summary>
+        private static readonly TimeSpan TrackingRequestTimeout = TimeSpan.FromMinutes(10);
+
+        /// <summary>API'deki <c>DbtMigrationHistoryItem</c>'ın istemci kopyası.</summary>
+        private class DbtMigrationHistoryItem
+        {
+            public string MigrationId { get; set; }
+
+            public DateTime FirstAppliedAt { get; set; }
+
+            public DateTime LastAppliedAt { get; set; }
+
+            public bool IsOk { get; set; }
+
+            public int RunCount { get; set; }
+
+            public int FailCount { get; set; }
+
+            public long DurationMs { get; set; }
+
+            public int StepCount { get; set; }
+
+            public int StepFailCount { get; set; }
+
+            public string TriggerKind { get; set; }
+
+            public string AppliedBy { get; set; }
+
+            public string Message { get; set; }
+        }
+
+        /// <summary>API'deki <c>DbtMigrationPackState</c>'in istemci kopyası.</summary>
+        private class DbtMigrationPackState
+        {
+            public string PackNo { get; set; }
+
+            public string MigrationId { get; set; }
+
+            public bool IsTracked { get; set; }
+
+            public bool IsApplied { get; set; }
+
+            public bool IsOk { get; set; }
+
+            public DateTime? LastAppliedAt { get; set; }
+
+            public int RunCount { get; set; }
+
+            public int FailCount { get; set; }
+
+            public string TriggerKind { get; set; }
+
+            public string Message { get; set; }
+
+            public string Error { get; set; }
+        }
+
+        /// <summary>
+        /// Tek paketin Dbt migration geçmişi: <c>__dbt_migrations_history</c> tablosundaki satırlar.
+        /// Start kutusuna tam paket numarası yazılır (0 = Dbt_Temp) — geçmiş paket bazında okunur.
+        /// </summary>
+        public async Task MigrationHistory()
+        {
+            string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
+            string operationName = cmbOperation.Text;
+            string startText = (tbstart.Text ?? "").Trim();
+
+            if (!int.TryParse(startText, out int packNo) || (packNo != 0 && startText.Length != 6))
+            {
+                _ = System.Windows.MessageBox.Show(
+                    "Start kutusuna tam paket numarası yazın (6 hane) ya da Dbt_Temp için 0.",
+                    "Migration Geçmişi", System.Windows.MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                return;
+            }
+
+            if (!ConfirmProd(cText))
+            {
+                return;
+            }
+
+            string apiBaseUrl = GetApiBaseUrl(cText);
+            string packName = packNo == 0 ? "Dbt_Temp" : $"Dbt_{packNo}";
+            string url = $"{apiBaseUrl}/master/dbt-migration-history/{packNo}";
+
+            Operation = $"Migration Geçmişi - {url}";
+
+            BeginSimpleOperation(operationName, $"{packName} - {url}");
+
+            int successCount = 0;
+            int errorCount = 0;
+
+            try
+            {
+                List<DbtMigrationHistoryItem> history = await GetJsonAsync<List<DbtMigrationHistoryItem>>(url);
+
+                if (history == null || !history.Any())
+                {
+                    Liste.Add($"{packName} --> takip kaydı yok");
+                    Liste.Add("         Sebep: bu vt'de __dbt_migrations_history tablosu hiç oluşmamış olabilir.");
+                    Liste.Add("         Çözüm: 1-Dbt-Migrate ile MigrationHistoryInit koşturun (EF geçmişinden geriye dönük doldurur).");
+                }
+                else
+                {
+                    foreach (DbtMigrationHistoryItem item in history)
+                    {
+                        string line = GetHistoryLine(item);
+
+                        Liste.Add(line);
+
+                        if (item.IsOk)
+                        {
+                            ++successCount;
+                        }
+                        else
+                        {
+                            ++errorCount;
+
+                            AddErrorLine($"{packName} - {line}");
+                        }
+                    }
+                }
+            }
+            catch (Exception exx)
+            {
+                ++errorCount;
+
+                string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
+
+                Liste.Add($"{packName} --> geçmiş okunamadı");
+                AddErrorLine($"{packName} - {error}");
+            }
+
+            EndSimpleOperation(operationName,
+                $"{packName} - Kayıt: {successCount + errorCount} - Başarılı: {successCount} - Hatalı: {errorCount}",
+                successCount, errorCount);
+        }
+
+        /// <summary>
+        /// Seçili Dbt migration'ın paket paket durumu: hangi pakete uygulandı, hangisinde hatalı bitti,
+        /// hangisi hiç takip edilmemiş. Start kutusu paket ön eki olarak çalışır (sunucu
+        /// <c>Dbt_{start}%</c> ile tarar, 0 = Dbt_Temp) — End kutusu bu işlemde kullanılmaz.
+        /// </summary>
+        public async Task MigrationPacks()
+        {
+            string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
+            string operationName = cmbOperation.Text;
+            string dbtMigrationName = cmbDbtMigrate.Text;
+            string startText = (tbstart.Text ?? "").Trim();
+
+            if (string.IsNullOrWhiteSpace(dbtMigrationName))
+            {
+                _ = System.Windows.MessageBox.Show("Dbt Migrate Name seçilmedi!", "Migration Takip",
+                    System.Windows.MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                return;
+            }
+
+            if (!int.TryParse(startText, out int packNoStarting))
+            {
+                _ = System.Windows.MessageBox.Show(
+                    "Start kutusuna paket ön eki ya da tam paket numarası yazın (0 = Dbt_Temp).",
+                    "Migration Takip", System.Windows.MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                return;
+            }
+
+            if (!ConfirmProd(cText))
+            {
+                return;
+            }
+
+            bool onlyMissing = chkOnlyMissing.IsChecked == true;
+
+            string apiBaseUrl = GetApiBaseUrl(cText);
+            string url = $"{apiBaseUrl}/master/dbt-migration-packs/{packNoStarting}/{dbtMigrationName}?onlyMissing={onlyMissing.ToString().ToLowerInvariant()}";
+
+            Operation = $"Migration Takip - {url}";
+
+            string scope = packNoStarting == 0 ? "Dbt_Temp" : $"{packNoStarting} ile başlayan paketler";
+
+            BeginSimpleOperation(operationName,
+                $"{scope} - {dbtMigrationName}{(onlyMissing ? " (yalnız eksik/hatalı)" : "")}");
+
+            Liste.Add("         paketler taranıyor, büyük aralıklarda birkaç dakika sürebilir...");
+
+            int successCount = 0;
+            int errorCount = 0;
+
+            try
+            {
+                List<DbtMigrationPackState> states = await GetJsonAsync<List<DbtMigrationPackState>>(url);
+
+                if (states == null || !states.Any())
+                {
+                    Liste.Add(onlyMissing
+                        ? $"{dbtMigrationName} --> eksik/hatalı paket bulunamadı (taranan aralıkta hepsi uygulanmış)"
+                        : $"{dbtMigrationName} --> taranacak paket bulunamadı - Start kutusunu kontrol edin (0 = Dbt_Temp)");
+                }
+                else
+                {
+                    foreach (DbtMigrationPackState state in states)
+                    {
+                        string line = GetPackStateLine(state);
+
+                        Liste.Add(line);
+
+                        if (state.IsApplied && state.IsOk)
+                        {
+                            ++successCount;
+                        }
+                        else
+                        {
+                            ++errorCount;
+
+                            AddErrorLine(line);
+                        }
+                    }
+                }
+            }
+            catch (Exception exx)
+            {
+                ++errorCount;
+
+                string error = exx.InnerException != null ? $"{exx.Message} - {exx.InnerException.Message}" : exx.Message;
+
+                Liste.Add($"{dbtMigrationName} --> takip durumu okunamadı");
+                AddErrorLine($"{scope} - {dbtMigrationName} - {error}");
+            }
+
+            EndSimpleOperation(operationName,
+                $"{dbtMigrationName} - Paket: {successCount + errorCount} - Uygulanmış: {successCount} - Eksik/Hatalı: {errorCount}",
+                successCount, errorCount);
+        }
+
+        private static string GetHistoryLine(DbtMigrationHistoryItem item)
+        {
+            string steps = item.StepCount > 0
+                ? $" | adım: {item.StepCount - item.StepFailCount}/{item.StepCount}"
+                : "";
+
+            string runs = item.RunCount > 1 ? $" | koşu: {item.RunCount}" : "";
+
+            string fails = item.FailCount > 0 ? $" | hatalı koşu: {item.FailCount}" : "";
+
+            string state = item.IsOk ? "OK" : "HATA";
+
+            string message = !string.IsNullOrWhiteSpace(item.Message) ? $" -> {item.Message}" : "";
+
+            return $"{item.MigrationId} --> {state} | {item.TriggerKind} | {item.LastAppliedAt:dd.MM.yyyy HH:mm:ss}" +
+                $" | {GetDurationText(item.DurationMs)}{steps}{runs}{fails} | {item.AppliedBy}{message}";
+        }
+
+        private static string GetPackStateLine(DbtMigrationPackState state)
+        {
+            string packName = state.PackNo == "Temp" ? "Dbt_Temp" : $"Dbt_{state.PackNo}";
+
+            if (!string.IsNullOrWhiteSpace(state.Error))
+            {
+                return $"{packName} --> OKUNAMADI -> {state.Error}";
+            }
+
+            if (!state.IsTracked)
+            {
+                return $"{packName} --> TAKİP YOK (MigrationHistoryInit koşturulmalı)";
+            }
+
+            if (!state.IsApplied)
+            {
+                return $"{packName} --> UYGULANMADI";
+            }
+
+            string runs = state.RunCount > 1 ? $" | koşu: {state.RunCount}" : "";
+
+            string message = !string.IsNullOrWhiteSpace(state.Message) ? $" -> {state.Message}" : "";
+
+            string appliedAt = state.LastAppliedAt.HasValue
+                ? state.LastAppliedAt.Value.ToString("dd.MM.yyyy HH:mm:ss")
+                : "";
+
+            if (!state.IsOk)
+            {
+                return $"{packName} --> HATALI | {state.TriggerKind} | {appliedAt}{runs} | hatalı koşu: {state.FailCount}{message}";
+            }
+
+            return $"{packName} --> uygulandı | {state.TriggerKind} | {appliedAt}{runs}";
+        }
+
+        private static string GetDurationText(long durationMs)
+        {
+            if (durationMs <= 0)
+            {
+                return "-";
+            }
+
+            return durationMs >= 1000
+                ? $"{durationMs / 1000.0:0.#} sn"
+                : $"{durationMs} ms";
+        }
+
+        /// <summary>
+        /// Kuyruk gerektirmeyen (tek istekli) işlemler için liste/durum panelini hazırlar —
+        /// <see cref="RunQueuedOperationAsync"/>'ın başlangıç bloğunun sadeleştirilmiş hâli.
+        /// </summary>
+        private void BeginSimpleOperation(string operationName, string headerText)
+        {
+            ResetStatus($"{operationName} - Başladı");
+
+            ErrorListe = new ObservableCollection<string>();
+
+            Liste = new ObservableCollection<string>
+            {
+                "         *********************      ",
+                $"              Başladı - {headerText}",
+                "         *********************      ",
+            };
+
+            list.ItemsSource = Liste;
+            errors.ItemsSource = ErrorListe;
+
+            RaisePropertyChanged(nameof(Liste));
+            RaisePropertyChanged(nameof(ErrorListe));
+        }
+
+        private void EndSimpleOperation(string operationName, string summary, int successCount, int errorCount)
+        {
+            Liste.Add("         *********************      ");
+            Liste.Add($"              Tamamlandı - {summary}");
+            Liste.Add("         *********************      ");
+            Liste.Add("         ");
+
+            RaisePropertyChanged(nameof(Liste));
+
+            if (list.Items.Count > 0)
+            {
+                list.SelectedIndex = list.Items.Count - 1;
+                list.ScrollIntoView(list.SelectedItem);
+            }
+
+            SuccessCount = successCount;
+            ErrorCount = errorCount;
+            PendingCount = 0;
+
+            _operation = $"{operationName} - {FinishedPhase} | {summary}";
+            RaisePropertyChanged(nameof(Operation));
+
+            SetStatus($"{operationName} - {FinishedPhase}", true, errorCount > 0);
+        }
+
+        private void AddErrorLine(string message)
+        {
+            ErrorListe.Add(message);
+            RaisePropertyChanged(nameof(ErrorListe));
+
+            if (errors.Items.Count > 0)
+            {
+                errors.SelectedIndex = errors.Items.Count - 1;
+                errors.ScrollIntoView(errors.SelectedItem);
+            }
+        }
+
+        /// <summary>GET isteği atıp yanıtı T olarak çözer; HTTP hata kodunda gövdeyi mesaja koyar.</summary>
+        private static async Task<T> GetJsonAsync<T>(string url)
+        {
+            using HttpClient client = new() { Timeout = TrackingRequestTimeout };
+            client.DefaultRequestHeaders.Add("Connection", "keep-alive");
+
+            HttpResponseMessage response = await client.GetAsync(url);
+
+            string responseContent = await response.Content.ReadAsStringAsync();
+
+            if (response.StatusCode != HttpStatusCode.OK)
+            {
+                throw new Exception($"Status Code: {response.StatusCode} -- {responseContent}");
+            }
+
+            JsonSerializerOptions jsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+            return JsonSerializer.Deserialize<T>(responseContent, jsonOptions);
+        }
+        #endregion
+
         public async Task FunctionRenew()
         {
             string cText = ((ComboBoxItem)cmbServis.SelectedItem).Content.ToString();
@@ -2649,7 +3035,14 @@ namespace Dbt_Migrate
         private void cmbOperation_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             dbtFuncRenewGrid.Visibility = cmbOperation.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
-            dbtMigrateGrid.Visibility = cmbOperation.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+
+            // Migration adı hem "1-Dbt-Migrate" hem "8-Migration Takip" için gerekiyor (takip, tek bir
+            // migration'ın paket paket durumunu sorar); "Yalnız eksik" seçeneği yalnız takipte anlamlı.
+            dbtMigrateGrid.Visibility = cmbOperation.SelectedIndex == 1 || cmbOperation.SelectedIndex == 8
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            chkOnlyMissing.Visibility = cmbOperation.SelectedIndex == 8 ? Visibility.Visible : Visibility.Collapsed;
 
             grdUpdateSalerId.Visibility = cmbOperation.SelectedIndex == 6 ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -2683,6 +3076,14 @@ namespace Dbt_Migrate
             else if (cmbOperation.SelectedIndex == 6)
             {
                 await UpdateSalerIds();
+            }
+            else if (cmbOperation.SelectedIndex == 7)
+            {
+                await MigrationHistory();
+            }
+            else if (cmbOperation.SelectedIndex == 8)
+            {
+                await MigrationPacks();
             }
         }
     }

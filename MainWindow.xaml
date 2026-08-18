@@ -250,6 +250,8 @@
                     <ComboBoxItem>4-Check Migrate Id</ComboBoxItem>
                     <ComboBoxItem>5-Revert Migrate</ComboBoxItem>
                     <ComboBoxItem>6-Update SalerId</ComboBoxItem>
+                    <ComboBoxItem ToolTip="Tek paketin Dbt migration geçmişi (__dbt_migrations_history): Start kutusuna tam paket no yazın (0 = Dbt_Temp).">7-Migration Geçmişi</ComboBoxItem>
+                    <ComboBoxItem ToolTip="Seçili Dbt migration'ın paket paket durumu: hangi pakete uygulandı, hangisinde hatalı bitti, hangisi hiç takip edilmemiş.">8-Migration Takip</ComboBoxItem>
                 </ComboBox.Items>
             </ComboBox>
 
@@ -312,6 +314,15 @@
 
             </StackPanel>
 
+            <CheckBox x:Name="chkOnlyMissing"
+                      Grid.Row="1"
+                      Grid.ColumnSpan="3"
+                      Margin="15,0"
+                      VerticalAlignment="Center"
+                      HorizontalAlignment="Left"
+                      Visibility="Collapsed"
+                      Content="Yalnız eksik/hatalı paketleri listele"
+                      ToolTip="İşaretliyse sadece bu migration'ın uygulanmadığı, hatalı bittiği ya da hiç takip edilmediği paketler döner — yani tekrar koşturulması gerekenler. İşaretli değilse tüm paketlerin durumu listelenir." />
 
         </Grid>
 

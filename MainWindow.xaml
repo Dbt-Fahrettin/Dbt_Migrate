@@ -188,10 +188,8 @@
                       Height="25"
                       VerticalContentAlignment="Center">
                 <ComboBox.Items>
-                    <ComboBoxItem IsSelected="True">Pre Test</ComboBoxItem>
-                    <ComboBoxItem>Test</ComboBoxItem>
+                    <ComboBoxItem IsSelected="True">Test</ComboBoxItem>
                     <ComboBoxItem>Prod</ComboBoxItem>
-                    <ComboBoxItem>Local</ComboBoxItem>
                 </ComboBox.Items>
             </ComboBox>
             <Button Content=" ? "

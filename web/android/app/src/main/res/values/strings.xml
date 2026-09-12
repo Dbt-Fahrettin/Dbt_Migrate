@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Dbt Admin Console</string>
+    <string name="title_activity_main">Dbt Admin Console</string>
+    <string name="package_name">com.devatek.dbtadmin</string>
+    <string name="custom_url_scheme">com.devatek.dbtadmin</string>
+</resources>

@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+
+/*
+ * Tema: sistem tercihine uyar (Tailwind v4'te dark: varsayılan olarak prefers-color-scheme).
+ * Ortam vurgu renkleri ayrı tutuldu — yanlış ortamda işlem başlatmak bu araçtaki en büyük
+ * operasyonel risk, bu yüzden ortam rengi arayüzün her yerinde aynı anlamı taşımalı.
+ */
+@theme {
+    --color-env-local: oklch(0.55 0.02 250);
+    --color-env-test: oklch(0.58 0.13 250);
+    --color-env-prod: oklch(0.55 0.21 27);
+}
+
+:root {
+    color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+}
+
+/*
+ * Telefonda tam ekran (PWA / Capacitor) çalışırken çentik ve ana ekran çubuğu arayüzü kesmesin.
+ * index.html'de viewport-fit=cover ile birlikte çalışır.
+ */
+/*
+ * max(...) bilerek: bu sınıflar Tailwind'in px-4/p-4 gibi padding yardımcılarıyla aynı elemanda
+ * kullanılıyor ve CSS'te sonra tanımlandıkları için onları EZİYOR. Düz env() yazılsaydı çentiği
+ * olmayan cihazlarda padding 0'a düşer, içerik ekranın kenarına yapışırdı.
+ */
+.safe-top {
+    padding-top: max(0px, env(safe-area-inset-top));
+}
+
+.safe-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+.safe-x {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+body {
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+}

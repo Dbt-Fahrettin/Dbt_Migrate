@@ -1,7 +1,10 @@
 import { endpoints } from '../api/endpoints';
 import { getJson } from '../api/http';
+import { formatDateTime } from '../format';
 import type { OperationLog } from './operationLog';
 import { emptyCounters } from './types';
+
+export { formatDateTime };
 
 /**
  * Salt okuma raporları: `7-Migration Geçmişi` ve `8-Migration Takip`.
@@ -48,26 +51,6 @@ export function formatDuration(durationMs: number): string {
     }
 
     return durationMs >= 1000 ? `${Math.round((durationMs / 1000) * 10) / 10} sn` : `${durationMs} ms`;
-}
-
-/** `2026-09-07T10:23:45Z` → `07.09.2026 10:23:45`; okunamıyorsa boş. */
-export function formatDateTime(value: string | null | undefined): string {
-    if (!value) {
-        return '';
-    }
-
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-        return '';
-    }
-
-    const pad = (n: number) => String(n).padStart(2, '0');
-
-    return (
-        `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()}` +
-        ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-    );
 }
 
 export function formatHistoryLine(item: MigrationHistoryItem): string {

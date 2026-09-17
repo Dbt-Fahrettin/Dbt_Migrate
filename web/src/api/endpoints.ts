@@ -57,6 +57,18 @@ export const endpoints = {
         `${join(api, `master/dbt-migration-packs/${packNoStarting}/${migrationName}`)}?onlyMissing=${onlyMissing}`,
 };
 
+/**
+ * Gib.Api — gece sorgulama servisinin çalışma zamanı anahtarı.
+ *
+ * Service.Api'nin master uçlarının aksine bu ikisi `[Authorize]` altında: servis internete
+ * açık ve bu uçlar bir belge sorgulamıyor, servisin kendi anahtarını çeviriyor. Kimliksiz
+ * erişilebilir olsaydı biri gece sorgusunu kapatıp sessiz veri kaybına yol açabilirdi.
+ */
+export const gibEndpoints = {
+    nightlyState: (gibApi: string) => join(gibApi, 'GibInvoiceQuery/GetNightlyQueryState'),
+    setNightlyState: (gibApi: string) => join(gibApi, 'GibInvoiceQuery/SetNightlyQueryState'),
+};
+
 /** Login.Api: kullanıcı adı + şifre doğrulama. */
 export function loginUrl(loginApiBaseUrl: string): string {
     return join(loginApiBaseUrl, 'token/login2');

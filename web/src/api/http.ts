@@ -52,9 +52,13 @@ async function toResult<T>(response: Response): Promise<ApiResult<T>> {
     };
 }
 
-export async function getJson<T>(url: string, signal?: AbortSignal): Promise<ApiResult<T>> {
+export async function getJson<T>(
+    url: string,
+    signal?: AbortSignal,
+    headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
     try {
-        const response = await fetch(url, { method: 'GET', signal });
+        const response = await fetch(url, { method: 'GET', signal, headers });
 
         return await toResult<T>(response);
     } catch (error) {
@@ -66,11 +70,16 @@ export async function getJson<T>(url: string, signal?: AbortSignal): Promise<Api
     }
 }
 
-export async function postJson<T>(url: string, body: unknown, signal?: AbortSignal): Promise<ApiResult<T>> {
+export async function postJson<T>(
+    url: string,
+    body: unknown,
+    signal?: AbortSignal,
+    headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
     try {
         const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...headers },
             body: JSON.stringify(body),
             signal,
         });

@@ -169,11 +169,11 @@ elle kodlanıyor. İkon değişecekse script'teki renkleri/şekli düzenleyip ye
 
 `src/config/environments.ts` — tek kaynak. Kod içinde başka yerde url kurmayın.
 
-| Ortam | Service.Api | Login.Api | Oturum |
-|---|---|---|---|
-| Local | `http://localhost:44305/api` | `login-test.unideva.com` | 30 gün |
-| Test | `https://test.unideva.com/svc/api` | `login-test.unideva.com` | 30 gün |
-| Prod | `https://hw.unideva.com/svc/api` | `login.unideva.com` | 12 saat |
+| Ortam | Service.Api | Gib.Api | Login.Api | Oturum |
+|---|---|---|---|---|
+| Local | `http://localhost:44305/api` | `http://localhost:5225/api` | `login-test.unideva.com` | 30 gün |
+| Test | `https://test.unideva.com/svc/api` | `https://test.unideva.com/gib/api` | `login-test.unideva.com` | 30 gün |
+| Prod | `https://hw.unideva.com/svc/api` | `https://hw.unideva.com/gib/api` | `login.unideva.com` | 12 saat |
 
 `Pre Test` ve `PreProd` 12.09.2026'da kaldırıldı: Pre Test kullanılmıyor, PreProd zaten Test ile
 aynı adrese gidiyordu.
@@ -255,6 +255,51 @@ bitene kadar sürer. Ekranda da böyle yazıyor.
 başına `setState` çağırmak binlerce paketlik akışta render fırtınası yaratırdı. Liste ayrıca
 sanallaştırılmıştır (`@tanstack/react-virtual`) — Blazor sürümü aynı sebeple listeyi 2000 satırda
 kesiyordu, burada kesmeye gerek yok.
+
+## Ekranlar
+
+Giriş sonrası **menü** açılır; iki bölüm var:
+
+| Bölüm | Ne yapar | Hangi servis |
+|---|---|---|
+| Migration İşlemleri | paket veritabanlarında migration/bakım | Service.Api `master`, `dbtRenewal` |
+| GİB API İşlemleri | gece sorgulama servisinin anahtarı | Gib.Api `GibInvoiceQuery` |
+
+Router kullanılmadı: üç ekran var, derin bağlantı ihtiyacı yok ve Capacitor paketinde adres
+çubuğu da yok (`src/navigation.ts`). Başlıktaki geri oku menüye döndürür.
+
+### GİB API İşlemleri
+
+Üç düğme: **Durum Kontrolü**, **Gece Servisini Aç**, **Gece Servisini Kapat**. Ekran açılır
+açılmaz durum sorgulanır; düğme yenilemek için.
+
+Gösterilenler: açık/kapalı, pencere içinde mi (18:00–07:00), açılışta başlat, sorgulanan gün,
+son sayaç, güncellenme zamanı.
+
+> **Durum bellekte tutulur** — servis her yayın ve yeniden başlatmadan sonra **kapalı** başlar ve
+> elle açılması gerekir. Bu bilinçli bir tasarım kararı, arıza değil; ekranda da böyle yazıyor ki
+> "neden yine kapanmış?" sorusu doğmasın.
+
+Prod'da her iki yön de onay ister (`AC` / `KAPAT` yazdırarak): kapatmak o gecenin faturalarının
+hiç çekilmemesi demek, açmak GİB'e yük bindirmek.
+
+#### Yetki
+
+Bu iki uç kaynak kodda `[Authorize]` altında — Service.Api'nin master uçlarından farklı olarak.
+İstekler girişte alınan belirteçle (`LoginResponse.lat`) imzalanıyor; Login.Api ve Gib.Api aynı
+JWT anahtarını paylaştığı için (ortam bazında `AppSettings:Secret` karşılaştırılarak doğrulandı)
+belirteç burada geçerlidir.
+
+**Belirteç ömrü oturum ömründen kısa:** Login.Api belirteci 2 gün üretiyor, konsol oturumu
+Test/Local'de 30 gün. Yani üçüncü gün Migration ekranı çalışmaya devam eder (master uçları kimlik
+istemiyor) ama GİB ekranı 401 alır. Bu yüzden ekranda belirtecin kalan süresi yazıyor ve 401
+"süresi dolmuş olabilir, çıkış yapıp tekrar girin" olarak açıklanıyor. Oturumu belirtecin ömrüne
+kısaltmak bilinçli olarak yapılmadı: ana kullanım olan Migration işlemlerinin belirtece ihtiyacı yok.
+
+> **Bulgu (17.09.2026):** Kaynak kodda `[Authorize]` var ama **çalışan Test ve Prod kurulumları
+> henüz kimlik doğrulaması istemiyor** — her iki ortamda da `Authorization` başlığı olmadan
+> `GetNightlyQueryState` 200 dönüyor. Yani dağıtımdaki sürümler bu değişiklikten eski. Konsol
+> yine de belirteci gönderiyor; dağıtım güncellendiğinde çalışmayı sürdürür.
 
 ## İşlemler
 
@@ -384,7 +429,15 @@ olurdu; bu yüzden `fetch` taklit edilerek sınandı:
   `/dbt-admin.apk` 200 / 3.19 MB
 - Üretim derlemesi tarayıcıda açıldı, yapı damgası göründü: `v1.0.0 · 5b601b0 · 12.09.2026`
 
-**Sınanmayanlar — sizin doğrulamanız gereken dört şey:**
+**Menü ve GİB ekranı (17.09.2026)**
+
+- Giriş sonrası menü, iki kart, bölüme giriş ve başlıktaki geri oku ile menüye dönüş
+- GİB ekranı Test'e bağlanıp gerçek durumu okudu (KAPALI, pencere dışında, sayaç 0);
+  Prod okuması da yapıldı (AÇIK)
+- `Authorization: Bearer` başlığı gönderiliyor, belirteçsizken eklenmiyor (test)
+- Mobilde (375×812) kartlar tam genişlik, yatay kaydırma yok
+
+**Sınanmayanlar — sizin doğrulamanız gereken beş şey:**
 
 1. *Gerçek bir hesapla başarılı giriş.* Elimde kimlik bilgisi yok; başarı ölçütü ve uç, çalışan
    `Devatek.Admin` istemcisiyle birebir aynı.
@@ -394,7 +447,10 @@ olurdu; bu yüzden `fetch` taklit edilerek sınandı:
 3. *APK'nin gerçek cihazda çalışması.* Derlendi ve içeriği doğrulandı ama bir telefona kurulup
    açılmadı. İlk kurulumda kontrol edilecekler: giriş ekranı açılıyor mu, `Local` ortamı listede
    görünmüyor mu, Test'e bağlanıyor mu.
-4. *PWA kurulumu ve `deploy/nginx.conf`.* Service worker dosyası doğru servis ediliyor (200,
+4. *Gece servisini aç/kapat.* Yalnız okuma yolu canlıya karşı sınandı; **yazma yolu (aç/kapat)
+   çalıştırılmadı** — gerçek bir servisin durumunu değiştirmek sizin kararınız. Test ortamında
+   bir kez deneyip sonra eski hâline getirin.
+5. *PWA kurulumu ve `deploy/nginx.conf`.* Service worker dosyası doğru servis ediliyor (200,
    `text/javascript`, geçerli workbox içeriği) ama kayıt, gömülü önizleme tarayıcısında
    başarısız oluyor — bu bağlamlarda service worker genelde kapalıdır. Gerçek Chrome/Edge'de
    "kur" düğmesinin çıktığını bir kez doğrulayın. nginx yapılandırması da bu makinede

@@ -11,7 +11,12 @@ interface Props {
     environments?: ServiceEnvironment[];
 }
 
-export function EnvSelector({ value, onChange, disabled, environments = visibleEnvironments(isNativeApp()) }: Props) {
+export function EnvSelector({
+    value,
+    onChange,
+    disabled,
+    environments = visibleEnvironments(isNativeApp()),
+}: Props) {
     return (
         <div
             role="radiogroup"

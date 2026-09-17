@@ -20,6 +20,18 @@ export interface ServiceEnvironment {
     apiBaseUrl: string;
 
     /**
+     * Gib.Api kökü.
+     *
+     * Ayrı bir servis ve ayrı bir adres: prod/test'te ingress `/gib/` yolundan geçiyor,
+     * lokalde kendi portunda (5225) koşuyor.
+     *
+     * Service.Api'nin master uçlarının aksine gece sorgusu uçları `[Authorize]` altında.
+     * Login.Api ile Gib.Api aynı JWT imzalama anahtarını paylaştığı için (ortam bazında
+     * doğrulandı) girişte alınan belirteç burada geçerlidir.
+     */
+    gibApiBaseUrl: string;
+
+    /**
      * Girişin doğrulanacağı Login.Api kökü.
      *
      * Local ve Test aynı Login.Api'yi kullanır; bu yüzden oturumları da ortaktır
@@ -49,6 +61,7 @@ export const ENVIRONMENTS: ServiceEnvironment[] = [
         key: 'local',
         name: 'Local',
         apiBaseUrl: 'http://localhost:44305/api',
+        gibApiBaseUrl: 'http://localhost:5225/api',
         loginApiBaseUrl: 'https://login-test.unideva.com/api',
         requiresConfirmation: false,
         sessionTtlHours: 24 * 30,
@@ -58,6 +71,7 @@ export const ENVIRONMENTS: ServiceEnvironment[] = [
         key: 'test',
         name: 'Test',
         apiBaseUrl: 'https://test.unideva.com/svc/api',
+        gibApiBaseUrl: 'https://test.unideva.com/gib/api',
         loginApiBaseUrl: 'https://login-test.unideva.com/api',
         requiresConfirmation: false,
         sessionTtlHours: 24 * 30,
@@ -67,6 +81,7 @@ export const ENVIRONMENTS: ServiceEnvironment[] = [
         key: 'prod',
         name: 'Prod',
         apiBaseUrl: 'https://hw.unideva.com/svc/api',
+        gibApiBaseUrl: 'https://hw.unideva.com/gib/api',
         loginApiBaseUrl: 'https://login.unideva.com/api',
         requiresConfirmation: true,
         sessionTtlHours: 12,
@@ -114,9 +129,17 @@ export function getEnvironment(key: EnvKey): ServiceEnvironment {
  * olarak engellenir. Capacitor paketinde (native http) bu sorun yoktur.
  */
 export function isBlockedByMixedContent(env: ServiceEnvironment): boolean {
+    return isMixedContent(env.apiBaseUrl);
+}
+
+export function isGibBlockedByMixedContent(env: ServiceEnvironment): boolean {
+    return isMixedContent(env.gibApiBaseUrl);
+}
+
+function isMixedContent(url: string): boolean {
     if (typeof window === 'undefined') {
         return false;
     }
 
-    return window.location.protocol === 'https:' && env.apiBaseUrl.startsWith('http://');
+    return window.location.protocol === 'https:' && url.startsWith('http://');
 }

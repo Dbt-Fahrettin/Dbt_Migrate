@@ -3,11 +3,11 @@ import { getJson, postJson } from './http';
 import type { ApiResult } from './http';
 
 /**
- * Gib.Api — gece sorgulama servisinin çalışma zamanı anahtarı.
+ * Gib.Api — gece sorgulama servisinin çalışma zamanı anahtarları.
  *
- * Servisin durumu **bilinçli olarak bellekte** tutuluyor: her yayın/yeniden başlatma sonrası
- * KAPALI başlar ve elle açılması gerekir. Veritabanına taşınmadı, bu bir tasarım kararı —
- * ekranda da böyle yazıyor ki "neden yine kapanmış?" sorusu doğmasın.
+ * Durum 18.09.2026'dan beri veritabanında (`GibInv.NightlyQueryControls`, tek satır) ve küme
+ * genelinde geçerli; önceki sürümde bellekte tutuluyordu. Tablo ilk kurulduğunda satır
+ * **kapalı** varsayılanla yazılır (`IsEnabled = AutoStartEnabled = false`).
  */
 
 /** GetNightlyQueryState / SetNightlyQueryState yanıtı. */
@@ -15,7 +15,10 @@ export interface NightlyQueryState {
     /** Gece sorgusu şu an açık mı (çalışma zamanı anahtarı). */
     isEnabled: boolean;
 
-    /** Servis açılışta kendiliğinden başlasın mı. */
+    /**
+     * Pencere açıldığında gece sorgusu kendiliğinden açılsın mı.
+     * Kapalıyken her yeniden başlatmadan sonra elle açmak gerekir.
+     */
     autoStartEnabled: boolean;
 
     /** Şu an 18:00–07:00 penceresinin içinde miyiz. */
@@ -29,6 +32,18 @@ export interface NightlyQueryState {
 
     /** Durumun en son değiştirildiği an. */
     updatedAtUtc: string;
+
+    /**
+     * Şu an ne koşuyor: `Night`, `Daytime` ya da `Idle`.
+     * Opsiyonel: alanı olmayan eski bir dağıtıma karşı da ekran bozulmasın.
+     */
+    mode?: string;
+}
+
+/** SetNightlyQueryState gövdesi; gönderilen alanlar güncellenir, gönderilmeyene dokunulmaz. */
+export interface NightlyStatePatch {
+    isEnabled?: boolean;
+    autoStartEnabled?: boolean;
 }
 
 function authHeaders(token: string | null | undefined): Record<string, string> {
@@ -60,21 +75,27 @@ export function getNightlyState(
 }
 
 /**
- * Gece sorgusunu açar/kapatır.
+ * Anahtarları günceller. Gönderilen alanlar yazılır, gönderilmeyen alanlara dokunulmaz;
+ * hiçbiri gönderilmezse sunucu 400 döner.
  *
- * Sunucu `IsEnabled` ve `AutoStartEnabled` alanlarını ayrı ayrı, gönderilirse günceller;
- * ikisi de boşsa 400 döner. Buradan yalnız `isEnabled` gönderiliyor — açılışta kendiliğinden
- * başlama ayarına dokunmak ayrı bir karar ve ekranda ona ait bir düğme yok.
+ * **Sunucuda iki sessiz bağlantı kuralı var** (GibDbRepo, "Bellek icindeki eski davranisin aynisi"):
+ *
+ * 1. `autoStartEnabled: true` **tek başına** gelirse `IsEnabled` de açılır.
+ * 2. `isEnabled: false` **tek başına** gelirse `AutoStartEnabled` de kapanır.
+ *
+ * Bu yüzden AutoStart düğmeleri iki alanı da açıkça gönderir (bkz. GibNightlyPage): aksi hâlde
+ * "AutoStart Aç" sessizce gece servisini de başlatırdı. Gece servisini kapatmanın AutoStart'ı da
+ * kapatması ise sunucunun kasıtlı davranışıdır, korunuyor — ekranda yazıyor.
  */
 export function setNightlyState(
     gibApiBaseUrl: string,
     token: string | null | undefined,
-    isEnabled: boolean,
+    patch: NightlyStatePatch,
     signal?: AbortSignal,
 ): Promise<ApiResult<NightlyQueryState>> {
     return postJson<NightlyQueryState>(
         gibEndpoints.setNightlyState(gibApiBaseUrl),
-        { isEnabled },
+        patch,
         signal,
         authHeaders(token),
     );

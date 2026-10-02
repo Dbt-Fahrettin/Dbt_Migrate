@@ -67,6 +67,13 @@ export const endpoints = {
 export const gibEndpoints = {
     nightlyState: (gibApi: string) => join(gibApi, 'GibInvoiceQuery/GetNightlyQueryState'),
     setNightlyState: (gibApi: string) => join(gibApi, 'GibInvoiceQuery/SetNightlyQueryState'),
+
+    /**
+     * Paket yeniden sorgusu. Uzun iş; imleçle parçalanır (bkz. api/gibRequery.ts).
+     * Bu uç da `[Authorize]` altında: bir çağrı paketin bütün mükellefleri adına GİB'e
+     * onlarca istek atıyor.
+     */
+    requeryPackInvoices: (gibApi: string) => join(gibApi, 'GibInvoiceQuery/RequeryPackInvoices'),
 };
 
 /** Login.Api: kullanıcı adı + şifre doğrulama. */

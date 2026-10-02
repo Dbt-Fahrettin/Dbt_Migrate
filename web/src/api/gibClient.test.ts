@@ -56,7 +56,7 @@ describe('getNightlyState', () => {
 
         expect(result.isSuccess).toBe(true);
         expect(result.data?.isEnabled).toBe(true);
-        expect((seenInit?.headers as Record<string, string>).Authorization).toBe(`Bearer ${TOKEN}`);
+        expect((seenInit?.headers as Record<string, string>)?.Authorization).toBe(`Bearer ${TOKEN}`);
     });
 
     it('belirteç yoksa Authorization başlığı eklemez', async () => {
@@ -78,7 +78,7 @@ describe('getNightlyState', () => {
 });
 
 describe('setNightlyState', () => {
-    it('yalnız isEnabled gönderir - AutoStartEnabled ayarına dokunmaz', async () => {
+    it('verilen gövdeyi olduğu gibi gönderir', async () => {
         let seenBody = '';
         let seenUrl = '';
 
@@ -92,7 +92,7 @@ describe('setNightlyState', () => {
             }),
         );
 
-        const result = await setNightlyState(GIB, TOKEN, false);
+        const result = await setNightlyState(GIB, TOKEN, { isEnabled: false });
 
         expect(seenUrl).toContain('SetNightlyQueryState');
         expect(JSON.parse(seenBody)).toEqual({ isEnabled: false });

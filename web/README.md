@@ -263,25 +263,84 @@ Giriş sonrası **menü** açılır; iki bölüm var:
 | Bölüm | Ne yapar | Hangi servis |
 |---|---|---|
 | Migration İşlemleri | paket veritabanlarında migration/bakım | Service.Api `master`, `dbtRenewal` |
-| GİB API İşlemleri | gece sorgulama servisinin anahtarı | Gib.Api `GibInvoiceQuery` |
+| GİB API İşlemleri | gece sorgusu anahtarları + paket yeniden sorgu | Gib.Api `GibInvoiceQuery` |
 
 Router kullanılmadı: üç ekran var, derin bağlantı ihtiyacı yok ve Capacitor paketinde adres
 çubuğu da yok (`src/navigation.ts`). Başlıktaki geri oku menüye döndürür.
 
 ### GİB API İşlemleri
 
-Üç düğme: **Durum Kontrolü**, **Gece Servisini Aç**, **Gece Servisini Kapat**. Ekran açılır
-açılmaz durum sorgulanır; düğme yenilemek için.
+İki ayrı anahtar yönetiliyor:
 
-Gösterilenler: açık/kapalı, pencere içinde mi (18:00–07:00), açılışta başlat, sorgulanan gün,
-son sayaç, güncellenme zamanı.
+| Anahtar | Ne yapar | Düğmeler |
+|---|---|---|
+| **Gece servisi** (`IsEnabled`) | ana şalter; kapalıyken gece sorgusu hiç koşmaz | Aç / Kapat |
+| **AutoStart** (`AutoStartEnabled`) | pencere açıldığında gece sorgusu kendiliğinden açılsın mı | Aç / Kapat |
 
-> **Durum bellekte tutulur** — servis her yayın ve yeniden başlatmadan sonra **kapalı** başlar ve
-> elle açılması gerekir. Bu bilinçli bir tasarım kararı, arıza değil; ekranda da böyle yazıyor ki
-> "neden yine kapanmış?" sorusu doğmasın.
+Ayrıca **Durum Kontrolü** düğmesi. Ekran açılır açılmaz durum sorgulanır; düğme yenilemek için.
 
-Prod'da her iki yön de onay ister (`AC` / `KAPAT` yazdırarak): kapatmak o gecenin faturalarının
-hiç çekilmemesi demek, açmak GİB'e yük bindirmek.
+Gösterilenler: iki anahtarın açık/kapalı durumu, pencere içinde mi (18:00–07:00), şu an ne koşuyor
+(`Night` / `Daytime` / `Idle`), sorgulanan gün, son sayaç, güncellenme zamanı.
+
+> Durum **veritabanında** tutulur (`GibInv.NightlyQueryControls`, tek satır, küme geneli) ve
+> yeniden başlatmayı aşar. Tablo ilk kurulduğunda satır **kapalı** varsayılanla yazılır — yani yeni
+> bir kurulumda ikisi de kapalı başlar. (18.09.2026'dan önce durum bellekteydi; bu README o
+> dönemde yazılmıştı, güncellendi.)
+
+#### Sunucudaki iki sessiz bağlantı kuralı
+
+`SetNightlyQueryState` gönderilen alanları yazar, ama iki örtük kuralı vardır (`GibDbRepo`,
+"Bellek icindeki eski davranisin aynisi"):
+
+1. `autoStartEnabled: true` **tek başına** gelirse `IsEnabled` de açılır.
+2. `isEnabled: false` **tek başına** gelirse `AutoStartEnabled` de kapanır.
+
+Birincisi "AutoStart Aç" düğmesinin istemeden gece servisini başlatmasına yol açardı. Bu yüzden
+**AutoStart düğmeleri `isEnabled`'ı da açıkça gönderir** (`src/features/gib/nightlyActions.ts`),
+böylece düğme yazdığı şeyi yapar. İkinci kural sunucunun kasıtlı davranışı; korunuyor ve ekranda
+yazılı — "Gece servisini kapatmak AutoStart'ı da kapatır".
+
+Prod'da dört işlem de onay ister (`AC` / `KAPAT` yazdırarak): kapatmak o gecenin faturalarının
+hiç çekilmemesi demek, açmak GİB'e yük bindirmek, AutoStart ise yeniden başlatma davranışını
+değiştirmek.
+
+### Paket Yeniden Sorgu
+
+`GibInvoiceQuery/RequeryPackInvoices` — paketin mükelleflerini verilen tarihten itibaren gece
+sorgusundan bağımsız yeniden sorgular. İçeriği alınmış faturalar atlanır; yeni gelen ya da içeriği
+alınamamış olanların içeriği güncel kurallarla istenir. **Damga yazmaz**, yani gece turunun
+ilerleyişini etkilemez.
+
+Ekrandan girilenler: **paket no**, **başlangıç tarihi**, **bitiş tarihi** (boş = verisi hazır en
+yeni gün). Gelişmiş ayarlarda: tek mükellef (VKN/TCKN), parça gün (1-31), çağrı bütçesi (30-480 sn).
+
+#### İlerleme neden izlenebiliyor
+
+İş uzun, bu yüzden sunucu onu **imleçle parçalıyor**: her çağrı `BudgetSeconds` kadar birim işliyor
+ve kaldığı yeri `NextCursor` ile dönüyor; istemci `HasMore` bitene dek imleci geri gönderiyor
+(sunucuda ayrıca 540 sn sert sınır var). Döngü `src/features/gib/requeryLoop.ts` içinde ve React'ten
+bağımsız — kuralları DOM'suz testleniyor.
+
+İlerleme hesabı: `TotalUnitCount` işin tamamındaki birim sayısı (payda, her çağrıda aynı gelir),
+`ProcessedUnitCount` ise **yalnız o çağrıda** işlenen birim sayısı. İmleç sıfırdan başladığı için
+çağrıların toplamı mutlak konumu veriyor. Ekranda ilerleme çubuğu, sayaçlar (mükellef, fatura,
+önbellekten, yeni içerik, içeriksiz, hatalı birim, çağrı, süre), atlanan mükellefler ve birim birim
+sonuç dökümü var.
+
+Çağrı bütçesi varsayılanı burada **60 sn** (sunucu varsayılanı 240): küçük bütçe = daha sık ilerleme
+bildirimi ve "Durdur"a daha çabuk cevap. Gelişmiş ayarlardan değiştirilebilir.
+
+#### Sonsuz döngü korumaları
+
+Sunucu hata durumunda `NextCursor`'ı **aynı** döndürüp `HasMore: true` diyor ("ayni Cursor ile
+yeniden cagirabilirsiniz"). Kalıcı bir hatada bu sonsuz döngü demek. Üç koruma var:
+
+- art arda 3 başarısız çağrıdan sonra durulur (araya başarı girerse sayaç sıfırlanır),
+- `401`'de hiç yeniden denenmez — belirteç kendiliğinden tazelenmiyor,
+- sunucu "devam var" deyip imleci ilerletmezse döngü kesilir.
+
+"Durdur" yeni çağrı açmayı keser; koşan çağrı kendi bütçesini tamamlar. Ekrandan çıkmak da döngüyü
+sonlandırır.
 
 #### Yetki
 
@@ -296,10 +355,9 @@ istemiyor) ama GİB ekranı 401 alır. Bu yüzden ekranda belirtecin kalan süre
 "süresi dolmuş olabilir, çıkış yapıp tekrar girin" olarak açıklanıyor. Oturumu belirtecin ömrüne
 kısaltmak bilinçli olarak yapılmadı: ana kullanım olan Migration işlemlerinin belirtece ihtiyacı yok.
 
-> **Bulgu (17.09.2026):** Kaynak kodda `[Authorize]` var ama **çalışan Test ve Prod kurulumları
-> henüz kimlik doğrulaması istemiyor** — her iki ortamda da `Authorization` başlığı olmadan
-> `GetNightlyQueryState` 200 dönüyor. Yani dağıtımdaki sürümler bu değişiklikten eski. Konsol
-> yine de belirteci gönderiyor; dağıtım güncellendiğinde çalışmayı sürdürür.
+> **Çözüldü (01.10.2026):** 17.09'da her iki ortam da `Authorization` başlığı olmadan 200
+> dönüyordu, yani dağıtımdaki sürümler `[Authorize]` değişikliğinden eskiydi. Bugün ikisi de
+> **401** dönüyor — koruma yürürlükte.
 
 ## İşlemler
 
@@ -437,7 +495,32 @@ olurdu; bu yüzden `fetch` taklit edilerek sınandı:
 - `Authorization: Bearer` başlığı gönderiliyor, belirteçsizken eklenmiyor (test)
 - Mobilde (375×812) kartlar tam genişlik, yatay kaydırma yok
 
-**Sınanmayanlar — sizin doğrulamanız gereken beş şey:**
+**AutoStart (01.10.2026)**
+
+- Beş düğme (Durum / Gece servisi Aç-Kapat / AutoStart Aç-Kapat) üç satırda gruplanıyor
+- İki durum rozeti ayrı ayrı okunuyor; `Mode` alanı varsa gösteriliyor (eski dağıtımda yoksa gizli)
+- Zaten açık/kapalı olan anahtarın düğmesi devre dışı kalıyor
+- Geçersiz belirteçle 401 yolu doğrulandı: "Yetki reddedildi (401)… çıkış yapıp tekrar girin"
+- `buildPatch` testleri AutoStart düğmelerinin `isEnabled`'ı açıkça gönderdiğini koruyor —
+  bu olmadan "AutoStart Aç" sessizce gece servisini de başlatırdı
+- Mobilde beş düğme tam genişlik, yatay kaydırma yok
+
+**Paket yeniden sorgu (02.10.2026)**
+
+- Form doğrulaması: boş paket no, eksik başlangıç tarihi, ters tarih aralığı, parça gün ve
+  bütçe sınırları (test)
+- İmleç döngüsü sahte uca karşı: çok sayfalı koşu, imlecin geri gönderilmesi, sayaçların
+  birikmesi, atlanan mükelleflerin tekrarsız toplanması, 500 satır sınırı, "Durdur", art arda
+  hata sınırı, 401'de denememe, imleç ilerlemeyince kesme (10 test)
+- Tarayıcıda uçtan uca: üç sayfalık bir koşuda ilerleme çubuğu %40 → %100, sayaçlar doğru
+  toplandı (fatura 24, önbellek 8, yeni 15), hatalı birim satırı kırmızı ve mesajıyla göründü
+- Mobilde (375×812) alanlar tam genişlik, yatay kaydırma yok
+
+> **Uç henüz dağıtılmadı (02.10.2026):** `RequeryPackInvoices` Test ve Prod'da **404** dönüyor
+> (korumalı uçlar 401 döndüğü için bu ayrım güvenilir). Gib.Api yayınlandığında çalışır; o güne
+> kadar ekran "Yetki reddedildi"/404 hatası gösterir.
+
+**Sınanmayanlar — sizin doğrulamanız gereken altı şey:**
 
 1. *Gerçek bir hesapla başarılı giriş.* Elimde kimlik bilgisi yok; başarı ölçütü ve uç, çalışan
    `Devatek.Admin` istemcisiyle birebir aynı.
@@ -450,7 +533,9 @@ olurdu; bu yüzden `fetch` taklit edilerek sınandı:
 4. *Gece servisini aç/kapat.* Yalnız okuma yolu canlıya karşı sınandı; **yazma yolu (aç/kapat)
    çalıştırılmadı** — gerçek bir servisin durumunu değiştirmek sizin kararınız. Test ortamında
    bir kez deneyip sonra eski hâline getirin.
-5. *PWA kurulumu ve `deploy/nginx.conf`.* Service worker dosyası doğru servis ediliyor (200,
+5. *Paket yeniden sorgunun gerçek koşusu.* Uç dağıtılmadığı için yalnız sahte uca karşı sınandı.
+   Gib.Api yayınlandıktan sonra bir test paketinde küçük bir tarih aralığıyla deneyin.
+6. *PWA kurulumu ve `deploy/nginx.conf`.* Service worker dosyası doğru servis ediliyor (200,
    `text/javascript`, geçerli workbox içeriği) ama kayıt, gömülü önizleme tarayıcısında
    başarısız oluyor — bu bağlamlarda service worker genelde kapalıdır. Gerçek Chrome/Edge'de
    "kur" düğmesinin çıktığını bir kez doğrulayın. nginx yapılandırması da bu makinede

@@ -63,6 +63,17 @@ export function describeGibFailure(result: ApiResult<unknown>): string {
         return 'Bu hesabın yetkisi yetmiyor (403).';
     }
 
+    // Korumalı uçlar kimliksiz çağrıda 401 döner; 404 "yol yok" demektir, yani sunucudaki
+    // sürüm bu ucu henüz içermiyor. Bu ayrım yayın beklenirken doğru teşhisi veriyor.
+    if (result.status === 404) {
+        return 'Sunucu sürümü bu ucu içermiyor (404) — Gib.Api yayını bekleniyor.';
+    }
+
+    // 409 gövdesi düz metin: sunucunun kendi gerekçesi (ör. yapılandırma kapalı).
+    if (result.status === 409) {
+        return result.content.trim() || 'İşlem şu anki yapılandırmayla reddedildi (409).';
+    }
+
     return result.error || `Status Code: ${result.status}`;
 }
 

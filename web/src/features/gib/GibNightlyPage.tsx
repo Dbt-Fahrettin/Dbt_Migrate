@@ -10,6 +10,7 @@ import { formatDate, formatDateTime } from '../../format';
 import { ConfirmDialog } from '../console/ConfirmDialog';
 import { ACTIONS, buildPatch } from './nightlyActions';
 import { PackRequeryPanel } from './PackRequeryPanel';
+import { XmlPurgePanel } from './XmlPurgePanel';
 import type { ActionKind } from './nightlyActions';
 
 /**
@@ -203,6 +204,8 @@ export function GibNightlyPage() {
             </section>
 
             <PackRequeryPanel />
+
+            <XmlPurgePanel />
 
             {pending && (
                 <ConfirmDialog

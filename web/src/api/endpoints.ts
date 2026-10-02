@@ -74,6 +74,14 @@ export const gibEndpoints = {
      * onlarca istek atıyor.
      */
     requeryPackInvoices: (gibApi: string) => join(gibApi, 'GibInvoiceQuery/RequeryPackInvoices'),
+
+    /**
+     * XML kolon boşaltma işi. Sunucu tarafında arka plan servisi; bu uçlar yalnız
+     * durumu okur ve anahtarı çevirir (bkz. api/gibPurge.ts).
+     */
+    purgeJob: (gibApi: string) => join(gibApi, 'GibXmlStore/purge-job'),
+    startPurgeJob: (gibApi: string) => join(gibApi, 'GibXmlStore/purge-job/start'),
+    stopPurgeJob: (gibApi: string) => join(gibApi, 'GibXmlStore/purge-job/stop'),
 };
 
 /** Login.Api: kullanıcı adı + şifre doğrulama. */

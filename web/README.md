@@ -263,7 +263,7 @@ Giriş sonrası **menü** açılır; iki bölüm var:
 | Bölüm | Ne yapar | Hangi servis |
 |---|---|---|
 | Migration İşlemleri | paket veritabanlarında migration/bakım | Service.Api `master`, `dbtRenewal` |
-| GİB API İşlemleri | gece sorgusu anahtarları + paket yeniden sorgu | Gib.Api `GibInvoiceQuery` |
+| GİB API İşlemleri | gece sorgusu anahtarları, paket yeniden sorgu, XML kolon boşaltma | Gib.Api `GibInvoiceQuery`, `GibXmlStore` |
 
 Router kullanılmadı: üç ekran var, derin bağlantı ihtiyacı yok ve Capacitor paketinde adres
 çubuğu da yok (`src/navigation.ts`). Başlıktaki geri oku menüye döndürür.
@@ -329,6 +329,42 @@ sonuç dökümü var.
 
 Çağrı bütçesi varsayılanı burada **60 sn** (sunucu varsayılanı 240): küçük bütçe = daha sık ilerleme
 bildirimi ve "Durdur"a daha çabuk cevap. Gelişmiş ayarlardan değiştirilebilir.
+
+### XML Kolon Boşaltma
+
+`GibXmlStore/purge-job` (GET durum · `start` · `stop`) — fatura XML'leri nesne deposuna
+taşındıktan sonra `gib_inv.gib_invoices.xml_content` kolonunda kalan veriyi boşaltan **sunucu
+tarafı arka plan işi**. Konsol yalnız durumu okur ve anahtarı çevirir; boşaltmayı Gib.Api içindeki
+servis yapar.
+
+İşin kendisi: en yeni satırdan eskiye, küçük partiler hâlinde, **her satır silinmeden önce
+depodan indirilip kolonla birebir karşılaştırılarak**. Durum veritabanında
+(`gib_inv.xml_purge_controls`), pod yeniden başlasa da kaldığı yerden sürer; iki pod'dan yalnız
+kiralamayı alan koşar. WAL birikimi sınırı aşarsa kendiliğinden bekler.
+
+Ekranda: açık/kapalı + çalışan pod, durum mesajı, boşaltılan satır, boşalan hacim, parti sayısı,
+imleç, WAL birikimi/sınır, son parti zamanı, başlangıç ve parti ayarları.
+
+**Hız** sunucudan gelmiyor; iki yoklama arasındaki `clearedCount`/`freedBytes` farkından
+istemcide hesaplanıyor (satır/sn ve GB/saat). İlk okumada görünmez. Sayaç geriye giderse
+(`restart`, ya da başka pod devralmış) hız gösterilmez — uydurulmuş bir sayı yanıltıcı olurdu.
+
+Durum 15 saniyede bir kendiliğinden yenilenir (react-query `refetchInterval`), ayrıca elle
+"Yenile" var.
+
+#### Güvenlik şeritleri
+
+- **Başlat geri alınamaz.** Onay kutusu Test'te `BOSALT`, Prod'da `PROD BOSALT` yazdırır ve
+  metinde "GERÇEK ve GERİ ALINAMAZ boşaltma" açıkça yazar; Prod'da düğme kırmızı.
+- **Durdur da onaylı** ve imlecin korunduğunu söyler.
+- İş zaten açıkken "Başlat", kapalıyken "Durdur" devre dışı.
+- Yapılandırmada `PurgeEnabled`/`ReadEnabled`/`StoreOnly` üçlüsünden biri kapalıysa uyarı çıkar
+  ve "Başlat" devre dışı kalır (sunucu zaten 409 dönerdi).
+- `blockedIds` doluysa kırmızı panel: kanıtlanamayan satır id'leri, kopyalanabilir.
+- **"Durmuş olabilir" uyarısı:** iş açık görünüyor ama son parti üzerinden 3 dakikadan fazla
+  geçtiyse. "Açık" rozeti tek başına bunu göstermiyor — WAL beklemesi, düşen pod ya da sessiz
+  durma hepsi aynı görünüyor. Karşılaştırma referansı `Date.now()` değil **yoklama anı**
+  (`dataUpdatedAt`): render sırasında `Date.now()` çağırmak sonucu her render'da oynatırdı.
 
 #### Sonsuz döngü korumaları
 
@@ -520,7 +556,22 @@ olurdu; bu yüzden `fetch` taklit edilerek sınandı:
 > (korumalı uçlar 401 döndüğü için bu ayrım güvenilir). Gib.Api yayınlandığında çalışır; o güne
 > kadar ekran "Yetki reddedildi"/404 hatası gösterir.
 
-**Sınanmayanlar — sizin doğrulamanız gereken altı şey:**
+**XML kolon boşaltma (02.10.2026)**
+
+- `describeGibFailure` 404'ü "sunucu sürümü bu ucu içermiyor — yayın bekleniyor", 409'u
+  sunucunun düz metin gerekçesiyle gösteriyor (test); 404 yorumu **gerçek (henüz yayınlanmamış)
+  uca karşı** doğrulandı
+- Hız hesabı: iki örnekten satır/sn ve GB/saat, ilk örnekte yok, sayaç geriye giderse yok,
+  ilerleme yoksa yok (test)
+- "Durmuş olabilir" eşiği: kapalı işte yok, son parti yakınsa yok, eskiyse var, hiç parti
+  yoksa başlangıca bakıyor (test)
+- Tarayıcıda taslanmış yanıtla: açık/kapalı panelleri, hız, WAL sınırı aşımı (kırmızı),
+  `blockedIds` paneli + kopyala, yapılandırma kapalı uyarısı, düğmelerin devre dışı kalması,
+  Durdur onay kutusu
+- **Başlat ucu hiçbir ortamda çağrılmadı.** Doğrulama sırasında `purge-job` içeren tüm istekler
+  taslandı; sayaç 3 GET / **0 POST** gösterdi.
+
+**Sınanmayanlar — sizin doğrulamanız gereken yedi şey:**
 
 1. *Gerçek bir hesapla başarılı giriş.* Elimde kimlik bilgisi yok; başarı ölçütü ve uç, çalışan
    `Devatek.Admin` istemcisiyle birebir aynı.
@@ -535,7 +586,10 @@ olurdu; bu yüzden `fetch` taklit edilerek sınandı:
    bir kez deneyip sonra eski hâline getirin.
 5. *Paket yeniden sorgunun gerçek koşusu.* Uç dağıtılmadığı için yalnız sahte uca karşı sınandı.
    Gib.Api yayınlandıktan sonra bir test paketinde küçük bir tarih aralığıyla deneyin.
-6. *PWA kurulumu ve `deploy/nginx.conf`.* Service worker dosyası doğru servis ediliyor (200,
+6. *XML kolon boşaltmanın gerçek koşusu.* Uçlar dağıtılmadı (Test ve Prod'da 404) ve başlat ucu
+   bilerek hiç çağrılmadı. Yayından sonra önce GET ile durumu okuyun; başlatmayı küçük bir parti
+   ve düşük WAL sınırıyla deneyin.
+7. *PWA kurulumu ve `deploy/nginx.conf`.* Service worker dosyası doğru servis ediliyor (200,
    `text/javascript`, geçerli workbox içeriği) ama kayıt, gömülü önizleme tarayıcısında
    başarısız oluyor — bu bağlamlarda service worker genelde kapalıdır. Gerçek Chrome/Edge'de
    "kur" düğmesinin çıktığını bir kez doğrulayın. nginx yapılandırması da bu makinede

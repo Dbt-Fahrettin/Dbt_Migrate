@@ -200,6 +200,28 @@ describe('runRequeryLoop', () => {
         expect(callCount()).toBe(MAX_CONSECUTIVE_FAILURES);
     });
 
+    /**
+     * Birim hatası çağrı hatası değildir: sunucu birimleri işleyip bazılarında mükellef kaynaklı
+     * hata bulduğunda IsOk=false döner ama imleci ilerletir. Döngü durmamalı (503956 vakası:
+     * her çağrıda hatalı birim vardı, döngü 3 çağrıda "failed" oluyordu).
+     */
+    it('IsOk false ama birim işlendiyse durmaz, hataları sayar', async () => {
+        const { state, callCount, progressSnapshots } = await run([
+            page({ isOk: false, processedUnitCount: 5, errorUnitCount: 2, nextCursor: 'c1' }),
+            page({ isOk: false, processedUnitCount: 5, errorUnitCount: 3, nextCursor: 'c2' }),
+            page({ isOk: false, processedUnitCount: 5, errorUnitCount: 1, nextCursor: 'c3' }),
+            page({ isOk: false, processedUnitCount: 5, errorUnitCount: 4, nextCursor: 'c4' }),
+            page({ isOk: true, processedUnitCount: 5, errorUnitCount: 0, nextCursor: null, hasMore: false }),
+        ]);
+
+        const last = progressSnapshots[progressSnapshots.length - 1];
+
+        expect(state).toBe('done');
+        expect(callCount()).toBe(5); // MAX_CONSECUTIVE_FAILURES'ı aştı ama durmadı
+        expect(last.errorUnits).toBe(10);
+        expect(last.processedUnits).toBe(25);
+    });
+
     /** Sunucu "devam var" deyip imleci ilerletmezse döngü kilitlenirdi. */
     it('imleç ilerlemiyorsa durur', async () => {
         const { state, callCount, errors } = await run([

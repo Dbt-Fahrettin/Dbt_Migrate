@@ -149,8 +149,15 @@ export async function runRequeryLoop(options: RequeryLoopOptions): Promise<RunSt
 
         onProgress({ ...accumulated, skippedTaxPayers: [...accumulated.skippedTaxPayers] });
 
-        // Sunucu iş mantığı hatası: gövde döner ama IsOk false ve imleç ilerlemez.
-        if (!data.isOk) {
+        // IsOk false İKİ anlama gelir:
+        // - Birim hatası: sunucu birimleri işledi (processedUnitCount > 0), bazıları mükellef
+        //   kaynaklı hata verdi (token uyuşmazlığı, yetki sözleşmesi yok…). Sunucu IsOk'u
+        //   "ErrorUnitCount == 0" diye kurar; imleç ilerler. Bu ÇAĞRI hatası değildir: döngü
+        //   sürer, hatalar sayaçta ve birim listesinde görünür.
+        // - Çağrı hatası: hiç birim işlenmedi (sunucu istisnası; imleç aynı döner). Sayılır.
+        // Eskiden ikisi ayrılmıyordu: gerçek veri hatası olan pakette (503956) her çağrıda hatalı
+        // birim çıktığı için döngü 3 çağrıda "failed" ile duruyordu (02.10.2026 Gib.Api kayıtları).
+        if (!data.isOk && data.processedUnitCount === 0) {
             consecutiveFailures += 1;
 
             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {

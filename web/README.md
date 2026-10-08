@@ -68,6 +68,24 @@ powershell -ExecutionPolicy Bypass -File scripts\local-service.ps1 -Action deplo
 
 Diğer eylemler: `start`, `stop`, `restart`, `status`, `uninstall`.
 
+#### Günlük akış
+
+| Ne yapıyorsunuz | Komut |
+|---|---|
+| Geliştirme (hot reload) | `npm run dev` → `http://localhost:5173` |
+| Değişikliği lokal kuruluma almak | `… local-service.ps1 -Action deploy` |
+| Yalnız yeniden başlatmak | `… -Action restart` |
+| Durum | `… -Action status` |
+
+`deploy` iki şey yapar: `build:local` ile `dist-local/`'u yeniden üretir, sonra servisi yeniden
+başlatır. Tarayıcıda **tek yenileme** yeter.
+
+> **Neden "tek yenileme" ayrıca söyleniyor:** service worker uygulama kabuğunu önbelleğe alıyor.
+> Düzeltmeden önce ölçüldü (08.10.2026): deploy sonrası birinci yenileme ESKİ paketi, ancak
+> ikincisi yenisini yüklüyordu — "değişikliği yaptım ama göremiyorum" durumu. `src/swReload.ts`
+> yeni worker kontrolü devralır almaz sayfayı bir kez yeniliyor; ölçümle doğrulandı, artık tek
+> yenileme yetiyor.
+
 | Parça | Ne yapıyor |
 |---|---|
 | `scripts/build-local.mjs` | `npm run build:local` — base `/admin-console/`, çıktı **`dist-local/`** |

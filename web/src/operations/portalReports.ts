@@ -229,6 +229,11 @@ export async function runPortalEBookUsage(request: PortalReportRequest): Promise
         counters.error += 1;
         log.addLine('Portal raporu alınamadı');
         log.addError(report.message || 'Sunucu gerekçe bildirmedi.');
+
+        // Bütün aylar okunamadığında da sebep ay satırlarında: portalın asıl hata metni burada.
+        for (const month of (report.months ?? []).filter((m) => m.error)) {
+            log.addError(`${month.month}: ${month.error}`);
+        }
     } else {
         writeEBookUsageReport(log, report);
 

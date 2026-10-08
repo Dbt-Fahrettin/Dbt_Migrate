@@ -1,5 +1,6 @@
 import { endpoints } from '../api/endpoints';
 import { runMigrationHistory, runMigrationTracking } from './migrationReports';
+import { runPortalDocCounts, runPortalEBookUsage } from './portalReports';
 import type { OperationLog } from './operationLog';
 import { getRangeTarget, resolvePackTargets } from './packTargets';
 import { runQueuedOperation } from './queuedOperation';
@@ -19,6 +20,8 @@ export const OPERATION_KINDS = {
     updateSalerId: 6,
     migrationHistory: 7,
     migrationTracking: 8,
+    portalDocCounts: 9,
+    portalEBookUsage: 10,
 } as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[keyof typeof OPERATION_KINDS];
@@ -72,7 +75,29 @@ export const OPERATIONS: OperationDefinition[] = [
         description: 'bir migration’ın paket paket durumu',
         isReadOnly: true,
     },
+    {
+        kind: OPERATION_KINDS.portalDocCounts,
+        name: '9-Portal E-Belge Sayıları',
+        description: 'devadonusum portalındaki tüm mükelleflerin belge adetleri, türe göre (paket kullanılmaz)',
+        isReadOnly: true,
+    },
+    {
+        kind: OPERATION_KINDS.portalEBookUsage,
+        name: '10-Portal E-Defter Kullanımı',
+        description: 'portaldaki tüm mükelleflerin e-Defter yükleme adedi ve harcanan alanı, ay ay (paket kullanılmaz)',
+        isReadOnly: true,
+    },
 ];
+
+/** Devatek portalının bayi geneli raporları: paket kutularını (Start/End) kullanmaz, oturum belirteci ister. */
+export function isPortalOperation(kind: OperationKind): boolean {
+    return kind === OPERATION_KINDS.portalDocCounts || kind === OPERATION_KINDS.portalEBookUsage;
+}
+
+/** Paket kutularını (Start/End) kullanan işlemler. */
+export function usesPackTargets(kind: OperationKind): boolean {
+    return !isPortalOperation(kind);
+}
 
 export interface OperationRequest {
     apiBaseUrl: string;
@@ -96,11 +121,31 @@ export interface OperationRequest {
     docEndDate: string;
     /** Migration Takip işleminde yalnız eksik/hatalı paketleri listele. */
     onlyMissing: boolean;
+    /** Portal raporlarında mükellef bazında listeyi de getir. */
+    withTaxpayers: boolean;
+    /** Login.Api giriş belirteci — yalnız `[Authorize]` altındaki portal uçlarında gönderilir. */
+    token: string;
     signal: AbortSignal;
 }
 
 /** Seçilen işlemi çalıştırmadan önceki doğrulama; uygunsa null döner. */
 export function validateRequest(kind: OperationKind, request: OperationRequest): string | null {
+    if (isPortalOperation(kind)) {
+        if (!request.token) {
+            return 'Oturum belirteci yok — çıkış yapıp tekrar girin.';
+        }
+
+        if (!request.docStartDate || !request.docEndDate) {
+            return 'Başlangıç ve bitiş tarihi zorunlu.';
+        }
+
+        if (request.docStartDate > request.docEndDate) {
+            return 'Başlangıç tarihi bitiş tarihinden sonra olamaz.';
+        }
+
+        return null;
+    }
+
     if (!request.startText.trim()) {
         return 'Start kutusu boş olamaz (0 = Dbt_Temp).';
     }
@@ -249,6 +294,12 @@ export function runOperation(kind: OperationKind, request: OperationRequest): Pr
 
         case OPERATION_KINDS.migrationTracking:
             return runMigrationTracking(request);
+
+        case OPERATION_KINDS.portalDocCounts:
+            return runPortalDocCounts(request);
+
+        case OPERATION_KINDS.portalEBookUsage:
+            return runPortalEBookUsage(request);
 
         default:
             return Promise.resolve();

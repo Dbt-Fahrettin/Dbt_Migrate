@@ -55,6 +55,17 @@ export const endpoints = {
     /** 8-Migration Takip — bir migration'ın paket paket durumu. */
     migrationPacks: (api: string, packNoStarting: string, migrationName: string, onlyMissing: boolean) =>
         `${join(api, `master/dbt-migration-packs/${packNoStarting}/${migrationName}`)}?onlyMissing=${onlyMissing}`,
+
+    /**
+     * 9-Portal E-Belge Sayıları — `[Authorize]` altında (Login.Api belirteci). Tarihler ISO (yyyy-MM-dd);
+     * sunucu DateOnly olarak bağlar.
+     */
+    undPortalDocCounts: (api: string, startDate: string, endDate: string, detail: boolean) =>
+        `${join(api, `UndPortal/etr-doc-counts/${startDate}/${endDate}`)}?detail=${detail}`,
+
+    /** 10-Portal E-Defter Kullanımı — ay ay yükleme adedi ve harcanan alan; `[Authorize]` altında. */
+    undPortalEBookUsage: (api: string, startDate: string, endDate: string, detail: boolean) =>
+        `${join(api, `UndPortal/ebook-usage/${startDate}/${endDate}`)}?detail=${detail}`,
 };
 
 /**

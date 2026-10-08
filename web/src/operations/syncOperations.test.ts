@@ -230,6 +230,8 @@ describe('validateRequest', () => {
             docStartDate: '',
             docEndDate: '',
             onlyMissing: false,
+            withTaxpayers: false,
+            token: '',
             signal: new AbortController().signal,
             ...overrides,
         };

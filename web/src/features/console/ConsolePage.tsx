@@ -7,7 +7,9 @@ import { isBlockedByMixedContent } from '../../config/environments';
 import {
     OPERATIONS,
     OPERATION_KINDS,
+    isPortalOperation,
     runOperation,
+    usesPackTargets,
     validateRequest,
     type OperationKind,
     type OperationRequest,
@@ -25,7 +27,7 @@ import { LogPane } from './LogPane';
 import { useOperationLog } from './useOperationLog';
 
 export function ConsolePage() {
-    const { environment } = useAuth();
+    const { environment, user } = useAuth();
 
     const log = useMemo(() => new OperationLog(), []);
     const snapshot = useOperationLog(log);
@@ -43,6 +45,7 @@ export function ConsolePage() {
     const [docStartDate, setDocStartDate] = useState('');
     const [docEndDate, setDocEndDate] = useState('');
     const [onlyMissing, setOnlyMissing] = useState(true);
+    const [withTaxpayers, setWithTaxpayers] = useState(false);
 
     const [isRunning, setIsRunning] = useState(false);
     const [isHelperBusy, setIsHelperBusy] = useState(false);
@@ -56,11 +59,15 @@ export function ConsolePage() {
 
     // Hangi alanın hangi işlemde anlamı var. Görünmeyen bir alanın değeri yine gönderilmez;
     // doğrulama da işleme göre çalışır (bkz. validateRequest).
-    const usesRange = kind !== OPERATION_KINDS.migrationHistory && kind !== OPERATION_KINDS.migrationTracking;
+    const usesStart = usesPackTargets(kind);
+    const usesRange =
+        usesStart && kind !== OPERATION_KINDS.migrationHistory && kind !== OPERATION_KINDS.migrationTracking;
     const usesBetweenMode = kind === OPERATION_KINDS.migrate || kind === OPERATION_KINDS.dbtMigrate;
     const usesMigrationName = kind === OPERATION_KINDS.dbtMigrate || kind === OPERATION_KINDS.migrationTracking;
     const usesFunctionName = kind === OPERATION_KINDS.functionRenew;
-    const usesDocDates = kind === OPERATION_KINDS.updateSalerId;
+    const isPortal = isPortalOperation(kind);
+    const usesDocDates = kind === OPERATION_KINDS.updateSalerId || isPortal;
+    const usesTaxpayerList = isPortal;
     const usesOnlyMissing = kind === OPERATION_KINDS.migrationTracking;
 
     const migrationCount = dbtMigrations ? dbtMigrations.versioned.length + dbtMigrations.standalone.length : 0;
@@ -167,6 +174,8 @@ export function ConsolePage() {
             docStartDate,
             docEndDate,
             onlyMissing,
+            withTaxpayers: usesTaxpayerList && withTaxpayers,
+            token: user?.lat ?? '',
             signal,
         };
     }
@@ -240,6 +249,7 @@ export function ConsolePage() {
                         )}
                     </Field>
 
+                    {usesStart && (
                     <div className={usesRange ? 'grid grid-cols-2 gap-2' : ''}>
                         <Field>
                             <Label htmlFor="start">Start</Label>
@@ -269,8 +279,9 @@ export function ConsolePage() {
                             </Field>
                         )}
                     </div>
+                    )}
 
-                    {!usesRange && (
+                    {usesStart && !usesRange && (
                         <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
                             Bu işlemde End kutusu kullanılmaz.
                         </p>
@@ -379,7 +390,7 @@ export function ConsolePage() {
                     {usesDocDates && (
                         <div className="grid grid-cols-2 gap-2">
                             <Field>
-                                <Label htmlFor="docStart">Evrak başlangıç</Label>
+                                <Label htmlFor="docStart">{isPortal ? 'Başlangıç' : 'Evrak başlangıç'}</Label>
                                 {/*
                                     type="date" bilerek: değer her zaman yyyy-MM-dd üretir. Sunucu tarafında
                                     DateTime.Parse(orderStartDate) kültüre bağlı çalışıyor; "01.09.2026" gibi
@@ -395,7 +406,7 @@ export function ConsolePage() {
                                 />
                             </Field>
                             <Field>
-                                <Label htmlFor="docEnd">Evrak bitiş</Label>
+                                <Label htmlFor="docEnd">{isPortal ? 'Bitiş' : 'Evrak bitiş'}</Label>
                                 <input
                                     id="docEnd"
                                     type="date"
@@ -421,6 +432,24 @@ export function ConsolePage() {
                                 Yalnız eksik/hatalı paketler
                                 <span className="block text-xs text-slate-500 dark:text-slate-400">
                                     Kapalıysa taranan tüm paketler listelenir.
+                                </span>
+                            </span>
+                        </label>
+                    )}
+
+                    {usesTaxpayerList && (
+                        <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+                            <input
+                                type="checkbox"
+                                checked={withTaxpayers}
+                                disabled={isRunning}
+                                onChange={(e) => setWithTaxpayers(e.target.checked)}
+                                className={checkboxClass}
+                            />
+                            <span>
+                                Mükellef listesi
+                                <span className="block text-xs text-slate-500 dark:text-slate-400">
+                                    Açıksa mükellef bazında adetler de yazılır (binlerce satır olabilir).
                                 </span>
                             </span>
                         </label>

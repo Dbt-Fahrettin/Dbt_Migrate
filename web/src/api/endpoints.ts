@@ -66,6 +66,33 @@ export const endpoints = {
     /** 10-Portal E-Defter Kullanımı — ay ay yükleme adedi ve harcanan alan; `[Authorize]` altında. */
     undPortalEBookUsage: (api: string, startDate: string, endDate: string, detail: boolean) =>
         `${join(api, `UndPortal/ebook-usage/${startDate}/${endDate}`)}?detail=${detail}`,
+
+    /**
+     * 11-E-Defter Boyutlarını Güncelle — mükellef bazında tarama işini başlatır (POST, gövde = VKN listesi; boş = tümü).
+     * Aylar yyyy-MM.
+     */
+    undPortalEBookScan: (api: string, startMonth: string, endMonth: string) =>
+        join(api, `UndPortal/ebook-scan/${startMonth}/${endMonth}`),
+
+    /** Tarama işinin durumu ve ilerlemesi. */
+    undPortalScanStatus: (api: string, jobId: string) => join(api, `UndPortal/scan-status/${encodeURIComponent(jobId)}`),
+
+    /** 12-Portal Kullanım Raporu — Login'deki kullanım tablosu; tür boşsa hepsi, VKN listesi virgülle. */
+    undPortalUsageReport: (api: string, startMonth: string, endMonth: string, docType: number | null, vkns: string[]) => {
+        const query = new URLSearchParams();
+
+        if (docType != null) {
+            query.set('docType', String(docType));
+        }
+
+        if (vkns.length > 0) {
+            query.set('vkns', vkns.join(','));
+        }
+
+        const suffix = query.toString();
+
+        return `${join(api, `UndPortal/usage-report/${startMonth}/${endMonth}`)}${suffix ? `?${suffix}` : ''}`;
+    },
 };
 
 /**

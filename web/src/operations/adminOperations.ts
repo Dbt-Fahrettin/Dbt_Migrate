@@ -1,6 +1,7 @@
 import { endpoints } from '../api/endpoints';
 import { runMigrationHistory, runMigrationTracking } from './migrationReports';
 import { runPortalDocCounts, runPortalEBookUsage } from './portalReports';
+import { invalidVkns, runEBookScan, runUsageReport } from './portalUsage';
 import type { OperationLog } from './operationLog';
 import { getRangeTarget, resolvePackTargets } from './packTargets';
 import { runQueuedOperation } from './queuedOperation';
@@ -22,6 +23,8 @@ export const OPERATION_KINDS = {
     migrationTracking: 8,
     portalDocCounts: 9,
     portalEBookUsage: 10,
+    portalEBookScan: 11,
+    portalUsageReport: 12,
 } as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[keyof typeof OPERATION_KINDS];
@@ -87,11 +90,33 @@ export const OPERATIONS: OperationDefinition[] = [
         description: 'portaldaki tüm mükelleflerin e-Defter yükleme adedi ve harcanan alanı, ay ay (paket kullanılmaz)',
         isReadOnly: true,
     },
+    {
+        kind: OPERATION_KINDS.portalEBookScan,
+        name: '11-E-Defter Boyutlarını Güncelle',
+        description:
+            'mükelleflerin kendi e-Defter kimlikleriyle portalı tarar, dönem başına MB/adet/durumu Login kullanım tablosuna yazar (arka plan işi)',
+        isReadOnly: false,
+    },
+    {
+        kind: OPERATION_KINDS.portalUsageReport,
+        name: '12-Portal Kullanım Raporu',
+        description: 'Login kullanım tablosundan ay ay mükellef/adet/MB toplamları; tüm satırlar Excel (CSV) olarak iner',
+        isReadOnly: true,
+    },
 ];
 
 /** Devatek portalının bayi geneli raporları: paket kutularını (Start/End) kullanmaz, oturum belirteci ister. */
 export function isPortalOperation(kind: OperationKind): boolean {
-    return kind === OPERATION_KINDS.portalDocCounts || kind === OPERATION_KINDS.portalEBookUsage;
+    return (
+        kind === OPERATION_KINDS.portalDocCounts ||
+        kind === OPERATION_KINDS.portalEBookUsage ||
+        isPortalUsageOperation(kind)
+    );
+}
+
+/** Mükellef bazında kullanım işlemleri: aylar tarih kutularından, isteğe bağlı VKN/TCKN listesi. */
+export function isPortalUsageOperation(kind: OperationKind): boolean {
+    return kind === OPERATION_KINDS.portalEBookScan || kind === OPERATION_KINDS.portalUsageReport;
 }
 
 /** Paket kutularını (Start/End) kullanan işlemler. */
@@ -125,6 +150,8 @@ export interface OperationRequest {
     withTaxpayers: boolean;
     /** Login.Api giriş belirteci — yalnız `[Authorize]` altındaki portal uçlarında gönderilir. */
     token: string;
+    /** Portal kullanım işlemlerinde VKN/TCKN listesi (virgül/boşluk ayraçlı); boşsa hepsi. */
+    vknText: string;
     signal: AbortSignal;
 }
 
@@ -141,6 +168,14 @@ export function validateRequest(kind: OperationKind, request: OperationRequest):
 
         if (request.docStartDate > request.docEndDate) {
             return 'Başlangıç tarihi bitiş tarihinden sonra olamaz.';
+        }
+
+        if (isPortalUsageOperation(kind)) {
+            const invalid = invalidVkns(request.vknText);
+
+            if (invalid.length > 0) {
+                return `VKN/TCKN 10 ya da 11 hane olmalı: ${invalid.slice(0, 5).join(', ')}`;
+            }
         }
 
         return null;
@@ -300,6 +335,12 @@ export function runOperation(kind: OperationKind, request: OperationRequest): Pr
 
         case OPERATION_KINDS.portalEBookUsage:
             return runPortalEBookUsage(request);
+
+        case OPERATION_KINDS.portalEBookScan:
+            return runEBookScan(request);
+
+        case OPERATION_KINDS.portalUsageReport:
+            return runUsageReport(request);
 
         default:
             return Promise.resolve();

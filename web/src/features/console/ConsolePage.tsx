@@ -8,6 +8,7 @@ import {
     OPERATIONS,
     OPERATION_KINDS,
     isPortalOperation,
+    isPortalUsageOperation,
     runOperation,
     usesPackTargets,
     validateRequest,
@@ -46,6 +47,7 @@ export function ConsolePage() {
     const [docEndDate, setDocEndDate] = useState('');
     const [onlyMissing, setOnlyMissing] = useState(true);
     const [withTaxpayers, setWithTaxpayers] = useState(false);
+    const [vknText, setVknText] = useState('');
 
     const [isRunning, setIsRunning] = useState(false);
     const [isHelperBusy, setIsHelperBusy] = useState(false);
@@ -67,7 +69,8 @@ export function ConsolePage() {
     const usesFunctionName = kind === OPERATION_KINDS.functionRenew;
     const isPortal = isPortalOperation(kind);
     const usesDocDates = kind === OPERATION_KINDS.updateSalerId || isPortal;
-    const usesTaxpayerList = isPortal;
+    const usesTaxpayerList = isPortal && kind !== OPERATION_KINDS.portalEBookScan;
+    const usesVknList = isPortalUsageOperation(kind);
     const usesOnlyMissing = kind === OPERATION_KINDS.migrationTracking;
 
     const migrationCount = dbtMigrations ? dbtMigrations.versioned.length + dbtMigrations.standalone.length : 0;
@@ -79,7 +82,12 @@ export function ConsolePage() {
               ? 'paket ön eki (0 = Dbt_Temp)'
               : '0 = Dbt_Temp';
 
-    const confirmRange = endText.trim() && usesRange ? `${startText.trim()}-${endText.trim()}` : startText.trim();
+    // Portal taramasında paket yok; onayda dönem yazdırılır.
+    const confirmRange = isPortal
+        ? `${docStartDate.slice(0, 7)}/${docEndDate.slice(0, 7)}`
+        : endText.trim() && usesRange
+          ? `${startText.trim()}-${endText.trim()}`
+          : startText.trim();
 
     async function loadDatNames() {
         if (!startText.trim()) {
@@ -176,6 +184,7 @@ export function ConsolePage() {
             onlyMissing,
             withTaxpayers: usesTaxpayerList && withTaxpayers,
             token: user?.lat ?? '',
+            vknText: usesVknList ? vknText : '',
             signal,
         };
     }
@@ -419,6 +428,26 @@ export function ConsolePage() {
                         </div>
                     )}
 
+                    {usesVknList && (
+                        <Field>
+                            <Label htmlFor="vkns">VKN/TCKN (boş = tümü)</Label>
+                            <textarea
+                                id="vkns"
+                                rows={2}
+                                value={vknText}
+                                disabled={isRunning}
+                                onChange={(e) => setVknText(e.target.value)}
+                                placeholder="virgül ya da boşlukla ayırın"
+                                className={`${inputClass} font-mono text-xs`}
+                            />
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                {kind === OPERATION_KINDS.portalEBookScan
+                                    ? 'Aylar tarih kutularından alınır: başlangıç ayının 1’i → bitiş ayının son günü.'
+                                    : 'Rapor ay ay toplar; satırların tamamı Excel dosyası olarak iner.'}
+                            </p>
+                        </Field>
+                    )}
+
                     {usesOnlyMissing && (
                         <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
                             <input
@@ -529,7 +558,9 @@ export function ConsolePage() {
                     title="Prod ortamında işlem başlatılacak"
                     summary={[
                         `İşlem : ${selected?.name ?? ''}`,
-                        `Paket : ${confirmRange}${isBetweenMode && usesBetweenMode ? ' (aralık modu)' : ''}`,
+                        isPortal
+                            ? `Dönem : ${confirmRange}${vknText.trim() ? ` · VKN: ${vknText.trim()}` : ' · tüm mükellefler'}`
+                            : `Paket : ${confirmRange}${isBetweenMode && usesBetweenMode ? ' (aralık modu)' : ''}`,
                         ...(usesMigrationName ? [`Migration : ${dbtMigrationName}`] : []),
                         ...(usesFunctionName ? [`Fonksiyon : ${functionName}`] : []),
                         ...(usesDocDates ? [`Evrak : ${docStartDate} → ${docEndDate}`] : []),

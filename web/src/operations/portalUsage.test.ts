@@ -1,0 +1,250 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { OPERATION_KINDS, validateRequest, type OperationRequest } from './adminOperations';
+import { OperationLog } from './operationLog';
+import {
+    buildUsageCsv,
+    parseVknList,
+    runEBookScan,
+    runUsageReport,
+    type PortalScanJobStatus,
+    type PortalUsageRequest,
+    type PortalUsageRow,
+} from './portalUsage';
+
+const API = 'https://ornek.test/svc/api';
+
+function usageRequest(log: OperationLog, overrides: Partial<PortalUsageRequest> = {}): PortalUsageRequest {
+    return {
+        apiBaseUrl: API,
+        log,
+        operationName: 'test',
+        token: 'lat-token',
+        docStartDate: '2026-08-15',
+        docEndDate: '2026-09-03',
+        vknText: '',
+        withTaxpayers: false,
+        signal: new AbortController().signal,
+        pollIntervalMs: 1,
+        ...overrides,
+    };
+}
+
+function json(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), { status });
+}
+
+function row(partial: Partial<PortalUsageRow> = {}): PortalUsageRow {
+    return {
+        vknTckn: '0123456789',
+        vkn: '0123456789',
+        tckn: null,
+        title: 'Örnek; A.Ş.',
+        docType: 20,
+        year: 2026,
+        month: 8,
+        docCount: 4,
+        sizeMb: 1.5,
+        periodStart: '2026-08-01',
+        periodEnd: '2026-08-31',
+        status: 'GİB onaylı',
+        error: null,
+        scannedAt: '2026-10-08T18:00:00+00:00',
+        ...partial,
+    };
+}
+
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
+
+describe('runEBookScan', () => {
+    it('ayları yyyy-MM gönderir, VKN listesini gövdeye koyar ve iş bitene kadar izler', async () => {
+        const calls: { url: string; method: string; body: string | null }[] = [];
+        const statuses: PortalScanJobStatus[] = [
+            { jobId: '42', isFound: true, state: 'Processing', isFinished: false, progress: null },
+            {
+                jobId: '42',
+                isFound: true,
+                state: 'Succeeded',
+                isFinished: true,
+                progress: {
+                    isDone: true,
+                    phase: 'Bitti',
+                    taxpayerCount: 2,
+                    processedCount: 2,
+                    failedCount: 1,
+                    rowsWritten: 5,
+                    elapsed: '00:00:09',
+                    message: '2 mükellef tarandı, 5 satır yazıldı (hata: 1).',
+                    failures: ['*******789 Örnek: Portal hatası: yetkisiz'],
+                },
+            },
+        ];
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string, init?: RequestInit) => {
+                calls.push({ url, method: init?.method ?? 'GET', body: (init?.body as string) ?? null });
+
+                if (url.includes('ebook-scan')) {
+                    return json({ jobId: '42', isFound: true, state: 'Enqueued', isFinished: false });
+                }
+
+                return json(statuses.shift());
+            }),
+        );
+
+        const log = new OperationLog();
+
+        await runEBookScan(usageRequest(log, { vknText: '0123456789, 12345678901' }));
+        log.flushNow();
+
+        expect(calls[0].url).toBe(`${API}/UndPortal/ebook-scan/2026-08/2026-09`);
+        expect(calls[0].method).toBe('POST');
+        expect(JSON.parse(calls[0].body ?? '[]')).toEqual(['0123456789', '12345678901']);
+        expect(calls[1].url).toBe(`${API}/UndPortal/scan-status/42`);
+        expect(calls).toHaveLength(3);
+
+        const snapshot = log.getSnapshot();
+        expect(snapshot.lines.join('\n')).toContain('5 satır yazıldı');
+        expect(snapshot.errors.join('\n')).toContain('yetkisiz');
+        expect(snapshot.state).toBe('succeeded');
+    });
+
+    it('işi başlatamazsa 403 gerekçesini yazar', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 403 })));
+
+        const log = new OperationLog();
+
+        await runEBookScan(usageRequest(log));
+        log.flushNow();
+
+        expect(log.getSnapshot().errors.join('\n')).toContain('AllowedUsers');
+        expect(log.getSnapshot().state).toBe('failed');
+    });
+
+    it('Durdur izlemeyi bırakır, iş sunucuda sürer', async () => {
+        const controller = new AbortController();
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string) => {
+                if (url.includes('ebook-scan')) {
+                    controller.abort();
+
+                    return json({ jobId: '7', isFound: true, state: 'Enqueued', isFinished: false });
+                }
+
+                return json({ jobId: '7', isFound: true, state: 'Processing', isFinished: false });
+            }),
+        );
+
+        const log = new OperationLog();
+
+        await runEBookScan(usageRequest(log, { signal: controller.signal }));
+        log.flushNow();
+
+        expect(log.getSnapshot().lines.join('\n')).toContain('İzleme durduruldu');
+    });
+});
+
+describe('runUsageReport', () => {
+    it('ay ay toplar ve satırları Excel dosyası olarak indirir', async () => {
+        const urls: string[] = [];
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string) => {
+                urls.push(url);
+
+                return json([
+                    row(),
+                    row({ month: 9, sizeMb: 2.25, docCount: 6, periodStart: '2026-09-01', periodEnd: '2026-09-30' }),
+                    row({ vknTckn: '12345678901', vkn: null, tckn: '12345678901', sizeMb: 0.25, docCount: 2 }),
+                ]);
+            }),
+        );
+
+        const downloads: { name: string; content: string }[] = [];
+        const log = new OperationLog();
+
+        await runUsageReport(
+            usageRequest(log, {
+                vknText: '0123456789 12345678901',
+                withTaxpayers: true,
+                download: (name, content) => downloads.push({ name, content }),
+            }),
+        );
+        log.flushNow();
+
+        expect(urls[0]).toBe(`${API}/UndPortal/usage-report/2026-08/2026-09?vkns=0123456789%2C12345678901`);
+
+        const text = log.getSnapshot().lines.join('\n');
+        expect(text).toContain('e-Defter');
+        expect(text).toContain('2026-08');
+        expect(text).toContain('1,75 MB');
+        expect(text).toContain('4 MB');
+
+        expect(downloads).toHaveLength(1);
+        expect(downloads[0].name).toBe('portal-kullanim-2026-08_2026-09.csv');
+        expect(log.getSnapshot().state).toBe('succeeded');
+    });
+
+    it('boş dönemde taramayı önerir', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => json([])));
+
+        const log = new OperationLog();
+        const download = vi.fn();
+
+        await runUsageReport(usageRequest(log, { download }));
+        log.flushNow();
+
+        expect(log.getSnapshot().lines.join('\n')).toContain('11-E-Defter');
+        expect(download).not.toHaveBeenCalled();
+    });
+});
+
+describe('buildUsageCsv', () => {
+    it('BOM, noktalı virgül, ondalık virgül; VKN baştaki sıfırı korur; ayraçlı unvan tırnaklanır', () => {
+        const csv = buildUsageCsv([row()]);
+        const lines = csv.split('\r\n');
+
+        expect(csv.startsWith('﻿')).toBe(true);
+        expect(lines[0]).toContain('VKN/TCKN;VKN;TCKN;Unvan');
+        expect(lines[1]).toContain('"=""0123456789"""');
+        expect(lines[1]).toContain('"Örnek; A.Ş."');
+        expect(lines[1]).toContain(';1,5;');
+        expect(lines[1]).toContain('e-Defter');
+    });
+});
+
+describe('VKN listesi', () => {
+    it('virgül/boşluk/noktalı virgülle ayırır, tekrarı atar', () => {
+        expect(parseVknList(' 0123456789,0123456789;\n12345678901 ')).toEqual(['0123456789', '12345678901']);
+    });
+
+    it('geçersiz VKN doğrulamada reddedilir', () => {
+        const base: OperationRequest = {
+            apiBaseUrl: API,
+            log: new OperationLog(),
+            operationName: 'test',
+            startText: '',
+            endText: '',
+            datNames: null,
+            isBetweenMode: false,
+            dbtMigrationName: '',
+            functionName: '',
+            docStartDate: '2026-08-01',
+            docEndDate: '2026-09-30',
+            onlyMissing: false,
+            withTaxpayers: false,
+            token: 'lat-token',
+            vknText: '',
+            signal: new AbortController().signal,
+        };
+
+        expect(validateRequest(OPERATION_KINDS.portalEBookScan, base)).toBeNull();
+        expect(validateRequest(OPERATION_KINDS.portalEBookScan, { ...base, vknText: '12ab' })).toContain('10 ya da 11');
+        expect(validateRequest(OPERATION_KINDS.portalUsageReport, { ...base, token: '' })).toContain('belirteci');
+    });
+});

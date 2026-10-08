@@ -232,6 +232,7 @@ describe('validateRequest', () => {
             onlyMissing: false,
             withTaxpayers: false,
             token: '',
+            vknText: '',
             signal: new AbortController().signal,
             ...overrides,
         };

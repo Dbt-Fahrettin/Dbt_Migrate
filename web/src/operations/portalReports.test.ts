@@ -159,6 +159,7 @@ describe('validateRequest (portal)', () => {
             onlyMissing: false,
             withTaxpayers: false,
             token: 'lat-token',
+            vknText: '',
             signal: new AbortController().signal,
             ...overrides,
         };
@@ -337,6 +338,7 @@ describe('runPortalEBookUsage', () => {
             onlyMissing: false,
             withTaxpayers: false,
             token: 'lat-token',
+            vknText: '',
             signal: new AbortController().signal,
         };
 

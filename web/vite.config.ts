@@ -28,8 +28,23 @@ function gitSha(): string {
   }
 }
 
+/**
+ * Yayın kökü.
+ *
+ * Varsayılan `/` — hem normal web yayını hem de **APK** böyle çalışır: Capacitor, WebView içinde
+ * dosyaları kök dizinden servis eder, alt yol verilirse index.html olmayan adreslere bakar ve
+ * uygulama bembeyaz açılır.
+ *
+ * Alt yol altında yayınlamak için derlerken APP_BASE verilir, ör. lokal kurulum:
+ *   APP_BASE=/admin-console/ npm run build      (npm run build:local bunu yapar)
+ *
+ * Sonunda / olmalı; Vite varlık adreslerini ve PWA manifest kapsamını buna göre kurar.
+ */
+const appBase = process.env.APP_BASE || '/'
+
 // https://vite.dev/config/
 export default defineConfig({
+  base: appBase,
   define: {
     __APP_VERSION__: JSON.stringify(packageVersion),
     __GIT_SHA__: JSON.stringify(gitSha()),
@@ -55,7 +70,9 @@ export default defineConfig({
         short_name: 'Dbt Admin',
         description: 'Dbt paket veritabanı migration ve bakım işlemleri',
         lang: 'tr',
-        start_url: '/',
+        // Alt yol altında yayınlanınca kurulu uygulama da o yoldan açılmalı.
+        start_url: appBase,
+        scope: appBase,
         display: 'standalone',
         background_color: '#0f172a',
         theme_color: '#0f172a',

@@ -52,6 +52,58 @@ için `npm version patch|minor|major` yeterli.
 `v1.0.0 · 5b601b0 · 12.09.2026`. Araç üç yerden kullanılıyor (tarayıcı, kurulu PWA, APK) ve her biri
 farklı sürümde takılı kalabiliyor; "hangi build'desiniz?" sorusunun cevabı ekranda yazmalı.
 
+### Lokalde sürekli çalıştırma (`http://localhost/admin-console`)
+
+Geliştirme sunucusundan (`npm run dev`) ayrı, makinede hep açık duran bir kurulum. Hot reload
+yok — **değişiklik ancak yeniden derleyip servisi yeniden başlatınca** devreye girer; istenen
+davranış bu.
+
+```powershell
+# bir kez: oturum açılışında başlayan görevi kur
+powershell -ExecutionPolicy Bypass -File scripts\local-service.ps1 -Action install
+
+# değişiklikten sonra: yeniden derle + yeniden başlat
+powershell -ExecutionPolicy Bypass -File scripts\local-service.ps1 -Action deploy
+```
+
+Diğer eylemler: `start`, `stop`, `restart`, `status`, `uninstall`.
+
+| Parça | Ne yapıyor |
+|---|---|
+| `scripts/build-local.mjs` | `npm run build:local` — base `/admin-console/`, çıktı **`dist-local/`** |
+| `scripts/serve-local.mjs` | bağımlılıksız statik sunucu, port 80, SPA fallback, önbellek disiplini |
+| `scripts/local-service.ps1` | Zamanlanmış Görev kurulumu ve yönetimi |
+
+#### Neden böyle
+
+- **Port 80 için yönetici gerekmiyor.** Windows'ta ayrıcalıklı port kısıtı yok; ölçtük, node
+  yükseltilmemiş kullanıcıyla 80'e bağlanabiliyor. IIS kurmaya da gerek kalmadı (zaten kurulu değil).
+- **Windows servisi yerine Zamanlanmış Görev.** Gerçek servis (sc.exe / nssm) yönetici hakkı ve
+  ek araç ister. Görev aynı işi görüyor: oturum açılışında başlar, çökerse 3 kez yeniden denenir,
+  script'ten durdurulup başlatılabilir. Tek farkı oturum kapalıyken çalışmaması. Oturumdan bağımsız
+  gerekirse nssm ile gerçek servise taşınır, komut aynı: `node scripts\serve-local.mjs`.
+- **Ayrı çıktı klasörü (`dist-local/`).** `npm run release` `dist/`'i base `/` ile üretiyor (APK ve
+  normal web yayını). Aynı klasörü paylaşsalardı biri diğerini ezerdi: APK derlendikten sonra lokal
+  sunucu kök tabanlı bir çıktıyı alt yoldan servis etmeye çalışır, uygulama bembeyaz açılırdı.
+- **`base` derleme zamanında seçilir** (`APP_BASE`, varsayılan `/`). Alt yol APK'yi bozar —
+  Capacitor WebView'da kök dizinden servis eder. Bu yüzden APK için her zaman `npm run release`.
+- **`stop` yalnız node süreçlerini kapatır.** Port 80'i node dışı bir şey tutuyorsa dokunmaz,
+  uyarır.
+
+#### Doğrulandı (08.10.2026)
+
+- `http://localhost/admin-console/` → 200; `http://localhost/` → 302 ile alt yola yönleniyor
+- Derin link (`/admin-console/olmayan-yol`) → 200 (SPA fallback)
+- Önbellek: `index.html` `no-cache`, `assets/*` `immutable`
+- Dizin dışına çıkma denemesi (`../../package.json`) → 404
+- Chrome'da service worker **active**, kapsam `/admin-console/`; manifest `scope` ve `start_url`
+  da `/admin-console/`
+- `deploy` sonrası paket adı değişti ve servis edilen baytlar diskteki yeni derlemeyle birebir
+  aynı (md5) — yani yeniden derle + yeniden başlat gerçekten devreye alıyor
+
+> Oturum, kaynağa (origin) bağlıdır: `localhost:5173` ile `localhost` farklı kaynaklardır, yeni
+> adreste bir kez giriş yapmanız gerekir.
+
 ### Statik sunucu
 
 Tek koşul SPA fallback: bilinmeyen yollar `index.html`'e dönmeli. `deploy/nginx.conf` hazır —

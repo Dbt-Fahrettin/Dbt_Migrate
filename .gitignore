@@ -368,3 +368,4 @@ web/release/
 # android/ klasoru KASITLI olarak depoda: AndroidManifest, gradle ayarlari ve imza
 # yapilandirmasi orada yasiyor. Uretilen dosyalari android/.gitignore zaten disliyor
 # (build ciktilari, local.properties, assets/public, keystore.properties).
+web/dist-local/

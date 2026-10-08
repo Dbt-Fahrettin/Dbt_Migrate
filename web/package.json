@@ -13,7 +13,10 @@
     "mobile:sync": "npm run build && npx cap sync android",
     "mobile:apk": "npm run build && npx cap sync android && cd android && .\\gradlew.bat assembleRelease",
     "mobile:open": "npx cap open android",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "build:local": "node scripts/build-local.mjs",
+    "serve:local": "node scripts/serve-local.mjs",
+    "start:local": "npm run build:local && npm run serve:local"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",

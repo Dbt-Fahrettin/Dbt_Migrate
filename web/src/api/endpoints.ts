@@ -74,6 +74,10 @@ export const endpoints = {
     undPortalEBookScan: (api: string, startMonth: string, endMonth: string) =>
         join(api, `UndPortal/ebook-scan/${startMonth}/${endMonth}`),
 
+    /** 13-E-Belge Sayılarını Güncelle — mükellef bazında e-belge adet taraması (POST, gövde = VKN listesi). */
+    undPortalEBelgeScan: (api: string, startMonth: string, endMonth: string) =>
+        join(api, `UndPortal/ebelge-scan/${startMonth}/${endMonth}`),
+
     /** Tarama işinin durumu ve ilerlemesi. */
     undPortalScanStatus: (api: string, jobId: string) => join(api, `UndPortal/scan-status/${encodeURIComponent(jobId)}`),
 

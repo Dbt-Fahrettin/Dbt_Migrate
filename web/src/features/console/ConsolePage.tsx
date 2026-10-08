@@ -69,7 +69,8 @@ export function ConsolePage() {
     const usesFunctionName = kind === OPERATION_KINDS.functionRenew;
     const isPortal = isPortalOperation(kind);
     const usesDocDates = kind === OPERATION_KINDS.updateSalerId || isPortal;
-    const usesTaxpayerList = isPortal && kind !== OPERATION_KINDS.portalEBookScan;
+    const isScan = kind === OPERATION_KINDS.portalEBookScan || kind === OPERATION_KINDS.portalEBelgeScan;
+    const usesTaxpayerList = isPortal && !isScan;
     const usesVknList = isPortalUsageOperation(kind);
     const usesOnlyMissing = kind === OPERATION_KINDS.migrationTracking;
 
@@ -441,7 +442,7 @@ export function ConsolePage() {
                                 className={`${inputClass} font-mono text-xs`}
                             />
                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                {kind === OPERATION_KINDS.portalEBookScan
+                                {isScan
                                     ? 'Aylar tarih kutularından alınır: başlangıç ayının 1’i → bitiş ayının son günü.'
                                     : 'Rapor ay ay toplar; satırların tamamı Excel dosyası olarak iner.'}
                             </p>

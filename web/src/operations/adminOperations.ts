@@ -1,7 +1,7 @@
 import { endpoints } from '../api/endpoints';
 import { runMigrationHistory, runMigrationTracking } from './migrationReports';
 import { runPortalDocCounts, runPortalEBookUsage } from './portalReports';
-import { invalidVkns, runEBookScan, runUsageReport } from './portalUsage';
+import { invalidVkns, runEBelgeScan, runEBookScan, runUsageReport } from './portalUsage';
 import type { OperationLog } from './operationLog';
 import { getRangeTarget, resolvePackTargets } from './packTargets';
 import { runQueuedOperation } from './queuedOperation';
@@ -25,6 +25,7 @@ export const OPERATION_KINDS = {
     portalEBookUsage: 10,
     portalEBookScan: 11,
     portalUsageReport: 12,
+    portalEBelgeScan: 13,
 } as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[keyof typeof OPERATION_KINDS];
@@ -103,6 +104,13 @@ export const OPERATIONS: OperationDefinition[] = [
         description: 'Login kullanım tablosundan ay ay mükellef/adet/MB toplamları; tüm satırlar Excel (CSV) olarak iner',
         isReadOnly: true,
     },
+    {
+        kind: OPERATION_KINDS.portalEBelgeScan,
+        name: '13-E-Belge Sayılarını Güncelle',
+        description:
+            'mükelleflerin kendi e-belge kullanıcılarıyla her ay ve türde (e-Fatura, e-Arşiv, e-İrsaliye, e-SMM, e-MM) adet sayar, Login kullanım tablosuna yazar (arka plan işi)',
+        isReadOnly: false,
+    },
 ];
 
 /** Devatek portalının bayi geneli raporları: paket kutularını (Start/End) kullanmaz, oturum belirteci ister. */
@@ -116,7 +124,11 @@ export function isPortalOperation(kind: OperationKind): boolean {
 
 /** Mükellef bazında kullanım işlemleri: aylar tarih kutularından, isteğe bağlı VKN/TCKN listesi. */
 export function isPortalUsageOperation(kind: OperationKind): boolean {
-    return kind === OPERATION_KINDS.portalEBookScan || kind === OPERATION_KINDS.portalUsageReport;
+    return (
+        kind === OPERATION_KINDS.portalEBookScan ||
+        kind === OPERATION_KINDS.portalEBelgeScan ||
+        kind === OPERATION_KINDS.portalUsageReport
+    );
 }
 
 /** Paket kutularını (Start/End) kullanan işlemler. */
@@ -341,6 +353,9 @@ export function runOperation(kind: OperationKind, request: OperationRequest): Pr
 
         case OPERATION_KINDS.portalUsageReport:
             return runUsageReport(request);
+
+        case OPERATION_KINDS.portalEBelgeScan:
+            return runEBelgeScan(request);
 
         default:
             return Promise.resolve();

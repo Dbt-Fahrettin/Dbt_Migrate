@@ -138,23 +138,44 @@ function progressLine(progress: PortalScanProgress | null | undefined, state: st
     );
 }
 
+/** Mükellef bazında tarama türleri: Service.Api'de ayrı Hangfire işleri, aynı ilerleme yapısı. */
+export type PortalScanKind = 'ebook' | 'ebelge';
+
+const SCAN_LABELS: Record<PortalScanKind, { title: string; credentials: string }> = {
+    ebook: { title: 'E-Defter Boyut Taraması', credentials: 'e-Defter kimlikleri' },
+    ebelge: { title: 'E-Belge Adet Taraması', credentials: 'e-belge web servis kullanıcıları' },
+};
+
 /**
  * 11-E-Defter Boyutlarını Güncelle — Service.Api'de tarama işini başlatır ve bitene kadar izler. "Durdur" yalnız
  * izlemeyi bırakır; sunucudaki iş sürer, aynı aralık yeniden çalıştırılırsa satırlar üzerine yazılır.
  */
-export async function runEBookScan(request: PortalUsageRequest): Promise<void> {
+export function runEBookScan(request: PortalUsageRequest): Promise<void> {
+    return runPortalScan('ebook', request);
+}
+
+/** 13-E-Belge Sayılarını Güncelle — her ay ve belge türü için adet; izleme 11 ile aynı. */
+export function runEBelgeScan(request: PortalUsageRequest): Promise<void> {
+    return runPortalScan('ebelge', request);
+}
+
+async function runPortalScan(kind: PortalScanKind, request: PortalUsageRequest): Promise<void> {
     const { apiBaseUrl, log, operationName, signal } = request;
     const startMonth = toMonth(request.docStartDate);
     const endMonth = toMonth(request.docEndDate);
     const vkns = parseVknList(request.vknText);
     const counters = emptyCounters();
+    const labels = SCAN_LABELS[kind];
 
-    const url = endpoints.undPortalEBookScan(apiBaseUrl, startMonth, endMonth);
+    const url =
+        kind === 'ebook'
+            ? endpoints.undPortalEBookScan(apiBaseUrl, startMonth, endMonth)
+            : endpoints.undPortalEBelgeScan(apiBaseUrl, startMonth, endMonth);
 
-    log.setOperation(`E-Defter Boyut Taraması - ${url}`);
+    log.setOperation(`${labels.title} - ${url}`);
     log.setStatus(`${operationName} - Başladı`, 'running');
     log.addLine(`Dönem    : ${startMonth} → ${endMonth} (ayın 1'i → son ayın son günü)`);
-    log.addLine(`Mükellef : ${vkns.length > 0 ? vkns.join(', ') : 'tümü (Login\'deki e-Defter kimlikleri)'}`);
+    log.addLine(`Mükellef : ${vkns.length > 0 ? vkns.join(', ') : `tümü (Login'deki ${labels.credentials})`}`);
     log.flushNow();
 
     const started = await postJson<PortalScanJobStatus>(url, vkns, signal, authHeaders(request.token));

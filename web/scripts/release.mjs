@@ -1,5 +1,5 @@
 /**
- * Yayın paketi üretir: `release/web/` (statik site) + `release/dbt-admin.apk`.
+ * Yayın paketi üretir: `release/web/` (statik site) + `release/dbt-admin-<surum>.apk`.
  *
  * Sürüm numarasının tek kaynağı package.json. Script onu Android tarafına da yazar, böylece
  * web ile APK'nin sürümü ayrışmaz — ayrıştığında "hangi build?" sorusu cevapsız kalır.
@@ -118,17 +118,21 @@ mkdirSync(releaseDir, { recursive: true });
 
 cpSync(join(root, 'dist'), join(releaseDir, 'web'), { recursive: true });
 
+const isSigned = apkPath.endsWith('app-release.apk');
+
+/**
+ * Dosya adında sürüm: elde biriken APK'ler birbirinden ayırt edilebilsin.
+ * İmzasızsa adında da yazsın — o dosya cihaza kurulamaz, karışmasın.
+ */
+const apkFileName = `dbt-admin-${version}${isSigned ? '' : '-IMZASIZ'}.apk`;
+
 if (apkPath) {
-    const target = join(releaseDir, 'dbt-admin.apk');
+    copyFileSync(apkPath, join(releaseDir, apkFileName));
 
-    copyFileSync(apkPath, target);
-
-    // nginx.conf indirme yolunu /dbt-admin.apk olarak sunuyor; web kökünde de dursun ki
-    // tek klasörü kopyalamak yeterli olsun.
+    // web/ kopyası BİLEREK sabit adlı: nginx.conf indirme yolunu `/dbt-admin.apk` olarak
+    // sunuyor. Sürümle değişseydi her yayında nginx yapılandırmasını düzenlemek gerekirdi.
     copyFileSync(apkPath, join(releaseDir, 'web', 'dbt-admin.apk'));
 }
-
-const isSigned = apkPath.endsWith('app-release.apk');
 
 writeFileSync(
     join(releaseDir, 'SURUM.txt'),
@@ -139,7 +143,8 @@ writeFileSync(
         `apk    : ${apkPath ? (isSigned ? 'imzalı' : 'İMZASIZ — cihaza kurulamaz') : 'üretilmedi'}`,
         '',
         'web/  → statik dosyalar (nginx: deploy/nginx.conf, SPA fallback şart)',
-        'dbt-admin.apk → Android paketi',
+        `${apkFileName} → Android paketi`,
+        'web/dbt-admin.apk → aynı paket, indirme linki için sabit adlı kopya',
         '',
     ].join('\n'),
 );
@@ -148,7 +153,7 @@ console.log(`\nHazır: ${releaseDir}`);
 console.log(`  web/           statik site`);
 
 if (apkPath) {
-    console.log(`  dbt-admin.apk  ${isSigned ? 'imzalı' : 'İMZASIZ'}`);
+    console.log(`  ${apkFileName}  ${isSigned ? 'imzalı' : 'İMZASIZ'}`);
 }
 
 console.log('');

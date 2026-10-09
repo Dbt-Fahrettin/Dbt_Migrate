@@ -130,7 +130,14 @@ export function LogPane({ lines, errors, operation, isRunning }: Props) {
                                 ].join(' ')}
                                 style={{ top: row.start, height: row.size }}
                             >
-                                <span className="truncate">{items[row.index]}</span>
+                                {/*
+                                    `truncate` white-space'i nowrap yapar ve art arda boşlukları/sekmeleri tek boşluğa
+                                    indirir; rapor sütunları (sekme ayraçlı) hizalı görünsün diye satır içi stil ezer.
+                                    Sekme genişliği raporların ilk sütunundaki en uzun etiketten (19 karakter) geniş.
+                                */}
+                                <span className="truncate" style={{ whiteSpace: 'pre', tabSize: 20 }}>
+                                    {items[row.index]}
+                                </span>
                             </button>
                         ))}
                     </div>

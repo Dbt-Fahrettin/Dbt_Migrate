@@ -311,6 +311,7 @@ export async function runUsageReport(request: PortalUsageRequest): Promise<void>
     }
 
     writeUsageSummary(log, rows, request.withTaxpayers);
+    writePeriodSummary(log, buildPeriodSummary(rows));
 
     const fileName = `portal-kullanim-${startMonth}_${endMonth}.csv`;
     (request.download ?? downloadText)(fileName, buildUsageCsv(rows));
@@ -347,12 +348,21 @@ function docTypeName(docType: number): string {
     return USAGE_DOC_TYPES[docType] ?? `Tür ${docType}`;
 }
 
+/**
+ * Rapor tabloları sekme ayraçlı yazılır: konsolda (sekme genişliği 20) sütunlar hizalı görünür, "Kopyala" ile alınan
+ * çıktı Excel'e yapıştırılınca her değer kendi hücresine düşer.
+ */
+function cells(...values: string[]): string {
+    return values.join('\t');
+}
+
 function totalsLine(label: string, totals: Totals, isEBook: boolean): string {
-    return (
-        `${label.padEnd(26, ' ')}${formatNumber(totals.taxpayers.size).padStart(10, ' ')}` +
-        `${formatNumber(totals.docCount).padStart(12, ' ')}` +
-        (isEBook ? `${`${formatNumber(Math.round(totals.sizeMb * 1000) / 1000)} MB`.padStart(18, ' ')}` : '') +
-        (totals.errors > 0 ? `   (${formatNumber(totals.errors)} hatalı satır)` : '')
+    return cells(
+        label,
+        formatNumber(totals.taxpayers.size),
+        formatNumber(totals.docCount),
+        ...(isEBook ? [`${formatNumber(Math.round(totals.sizeMb * 1000) / 1000)} MB`] : []),
+        ...(totals.errors > 0 ? [`(${formatNumber(totals.errors)} hatalı satır)`] : []),
     );
 }
 
@@ -376,17 +386,12 @@ export function writeUsageSummary(log: OperationLog, rows: PortalUsageRow[], wit
 
         log.addLine('');
         log.addLine(`${docTypeName(docType)}`);
-        log.addLine(
-            `${'Ay'.padEnd(26, ' ')}${'Mükellef'.padStart(10, ' ')}${(isEBook ? 'Parça' : 'Adet').padStart(12, ' ')}` +
-                (isEBook ? 'Boyut'.padStart(18, ' ') : ''),
-        );
-        log.addLine('-'.repeat(isEBook ? 66 : 48));
+        log.addLine(cells('Ay', 'Mükellef', isEBook ? 'Parça' : 'Adet', ...(isEBook ? ['Boyut'] : [])));
 
         for (const [key, totals] of [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b))) {
             log.addLine(totalsLine(key, totals, isEBook));
         }
 
-        log.addLine('-'.repeat(isEBook ? 66 : 48));
         log.addLine(totalsLine('Toplam', all, isEBook));
 
         if (withTaxpayers) {
@@ -405,19 +410,79 @@ export function writeUsageSummary(log: OperationLog, rows: PortalUsageRow[], wit
 
             log.addLine('');
             log.addLine(`Mükellefler (${formatNumber(sorted.length)}) — ${isEBook ? 'boyuta' : 'adede'} göre`);
+            log.addLine(cells('VKN/TCKN', isEBook ? 'Parça' : 'Adet', ...(isEBook ? ['Boyut'] : []), 'Unvan'));
 
             for (const [vknTckn, entry] of sorted) {
                 log.addLine(
-                    `${vknTckn.padEnd(12, ' ')} ${formatNumber(entry.totals.docCount).padStart(8, ' ')}` +
-                        (isEBook ? ` ${`${formatNumber(entry.totals.sizeMb)} MB`.padStart(14, ' ')}` : '') +
-                        `  ${entry.title}`,
+                    cells(
+                        vknTckn,
+                        formatNumber(entry.totals.docCount),
+                        ...(isEBook ? [`${formatNumber(entry.totals.sizeMb)} MB`] : []),
+                        entry.title,
+                    ),
                 );
             }
         }
     }
 }
 
-/** Excel (tr-TR) için: noktalı virgül ayraç, ondalık virgül, UTF-8 BOM. */
+/** Dönem özetindeki e-belge aileleri: giden/gelen ayrımı birleştirilir. */
+const DOC_FAMILIES: { name: string; docTypes: number[] }[] = [
+    { name: 'E-Fatura', docTypes: [1, 2] },
+    { name: 'E-Arşiv', docTypes: [3] },
+    { name: 'E-İrsaliye', docTypes: [4, 5, 6, 7] },
+    { name: 'E-SMM', docTypes: [8] },
+    { name: 'E-Müstahsil', docTypes: [9] },
+];
+
+export interface PeriodSummary {
+    families: { name: string; count: number; percent: number }[];
+    totalDocs: number;
+    eBookMb: number;
+}
+
+/** Dönemin tamamı: aile başına belge adedi ve toplam içindeki oranı (%), e-Defter toplam boyutu. */
+export function buildPeriodSummary(rows: PortalUsageRow[]): PeriodSummary {
+    const counts = DOC_FAMILIES.map((family) =>
+        rows.filter((r) => family.docTypes.includes(r.docType)).reduce((sum, r) => sum + (r.docCount ?? 0), 0),
+    );
+    const totalDocs = counts.reduce((sum, c) => sum + c, 0);
+
+    return {
+        families: DOC_FAMILIES.map((family, i) => ({
+            name: family.name,
+            count: counts[i],
+            percent: totalDocs > 0 ? (counts[i] * 100) / totalDocs : 0,
+        })),
+        totalDocs,
+        eBookMb: rows.filter((r) => r.docType === DOC_TYPE_EBOOK).reduce((sum, r) => sum + (r.sizeMb ?? 0), 0),
+    };
+}
+
+const percentFormat = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function writePeriodSummary(log: OperationLog, summary: PeriodSummary): void {
+    log.addLine('');
+    log.addLine('Dönem özeti');
+    log.addLine(cells('Belge', 'Adet', 'Oran'));
+
+    for (const family of summary.families) {
+        log.addLine(cells(family.name, formatNumber(family.count), `%${percentFormat.format(family.percent)}`));
+    }
+
+    log.addLine(cells('Toplam belge', formatNumber(summary.totalDocs), '%100,00'));
+    log.addLine('');
+    log.addLine(cells('E-Defter', `${percentFormat.format(summary.eBookMb)} MB`, `${percentFormat.format(summary.eBookMb / 1024)} GB`));
+}
+
+function csvDecimal(value: number): string {
+    return value.toFixed(2).replace('.', ',');
+}
+
+/**
+ * Excel (tr-TR) için: noktalı virgül ayraç, ondalık virgül, UTF-8 BOM. Satırların altına bir boş satır ve dönem özeti
+ * (aile başına adet, oran %, toplam belge, e-Defter MB/GB) eklenir.
+ */
 export function buildUsageCsv(rows: PortalUsageRow[]): string {
     const header = ['VKN/TCKN', 'VKN', 'TCKN', 'Unvan', 'Tür', 'Yıl', 'Ay', 'Adet', 'MB', 'Dönem Başı', 'Dönem Sonu', 'Durum', 'Tarama', 'Hata'];
 
@@ -442,7 +507,21 @@ export function buildUsageCsv(rows: PortalUsageRow[]): string {
             .join(';'),
     );
 
-    return `﻿${[header.map(csvCell).join(';'), ...lines].join('\r\n')}\r\n`;
+    const summary = buildPeriodSummary(rows);
+    const summaryLines = [
+        '',
+        ['Dönem Özeti', ...summary.families.map((f) => f.name), 'Toplam Belge', 'E-Defter MB', 'E-Defter GB'],
+        [
+            'Adet',
+            ...summary.families.map((f) => String(f.count)),
+            String(summary.totalDocs),
+            csvDecimal(summary.eBookMb),
+            csvDecimal(summary.eBookMb / 1024),
+        ],
+        ['Oran %', ...summary.families.map((f) => csvDecimal(f.percent)), csvDecimal(summary.totalDocs > 0 ? 100 : 0)],
+    ].map((line) => (Array.isArray(line) ? line.map(csvCell).join(';') : line));
+
+    return `\uFEFF${[header.map(csvCell).join(';'), ...lines, ...summaryLines].join('\r\n')}\r\n`;
 }
 
 /** VKN 0 ile başlayabilir; Excel sayı sanıp sıfırı silmesin diye ="…" metin formülü. */

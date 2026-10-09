@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OPERATION_KINDS, validateRequest, type OperationRequest } from './adminOperations';
 import { OperationLog } from './operationLog';
 import {
+    buildPeriodSummary,
     buildUsageCsv,
     parseVknList,
     runEBelgeScan,
@@ -240,6 +241,61 @@ describe('buildUsageCsv', () => {
         expect(lines[1]).toContain('"Örnek; A.Ş."');
         expect(lines[1]).toContain(';1,5;');
         expect(lines[1]).toContain('e-Defter');
+    });
+});
+
+describe('dönem özeti', () => {
+    const rows = [
+        row({ docType: 2, docCount: 600, sizeMb: null }),
+        row({ docType: 1, docCount: 50, sizeMb: null, month: 9 }),
+        row({ docType: 3, docCount: 150, sizeMb: null }),
+        row({ docType: 5, docCount: 190, sizeMb: null }),
+        row({ docType: 8, docCount: 4, sizeMb: null }),
+        row({ docType: 9, docCount: 6, sizeMb: null }),
+        row({ docType: 20, docCount: 4, sizeMb: 1024 }),
+        row({ docType: 20, docCount: 4, sizeMb: 512, month: 9 }),
+    ];
+
+    it('aileleri birleştirir, oranları toplam belgeye göre verir, e-Defter boyutunu ayrı toplar', () => {
+        const summary = buildPeriodSummary(rows);
+
+        expect(summary.totalDocs).toBe(1000);
+        expect(summary.families.map((f) => [f.name, f.count, f.percent])).toEqual([
+            ['E-Fatura', 650, 65],
+            ['E-Arşiv', 150, 15],
+            ['E-İrsaliye', 190, 19],
+            ['E-SMM', 4, 0.4],
+            ['E-Müstahsil', 6, 0.6],
+        ]);
+        expect(summary.eBookMb).toBe(1536);
+    });
+
+    it('Excel dosyasının altına özet satırlarını ekler', () => {
+        const lines = buildUsageCsv(rows).trimEnd().split('\r\n');
+
+        expect(lines.slice(-3)).toEqual([
+            'Dönem Özeti;E-Fatura;E-Arşiv;E-İrsaliye;E-SMM;E-Müstahsil;Toplam Belge;E-Defter MB;E-Defter GB',
+            'Adet;650;150;190;4;6;1000;1536,00;1,50',
+            'Oran %;65,00;15,00;19,00;0,40;0,60;100,00',
+        ]);
+        expect(lines[lines.length - 4]).toBe('');
+    });
+
+    it('konsol çıktısına dönem özetini yazar', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => json(rows)));
+
+        const log = new OperationLog();
+
+        await runUsageReport(usageRequest(log, { download: () => {} }));
+        log.flushNow();
+
+        const text = log.getSnapshot().lines.join('\n');
+        expect(text).toContain('Dönem özeti');
+        // Sütunlar sekmeyle ayrılır (konsolda hizalı, Excel'e yapıştırınca hücrelere bölünür).
+        expect(log.getSnapshot().lines).toContain('E-Fatura	650	%65,00');
+        expect(log.getSnapshot().lines).toContain('Toplam belge	1.000	%100,00');
+        expect(text).toContain('%65,00');
+        expect(text).toContain('1,50 GB');
     });
 });
 

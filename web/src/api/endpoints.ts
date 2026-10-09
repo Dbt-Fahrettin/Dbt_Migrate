@@ -78,6 +78,13 @@ export const endpoints = {
     undPortalEBelgeScan: (api: string, startMonth: string, endMonth: string) =>
         join(api, `UndPortal/ebelge-scan/${startMonth}/${endMonth}`),
 
+    /**
+     * 14-Portal E-Belge Sayıları (bayi) — portal REST API'siyle bayinin bütün aktif müşterileri (Login'den bağımsız);
+     * POST, gövde = VKN listesi (boş = hepsi).
+     */
+    undPortalRestScan: (api: string, startMonth: string, endMonth: string) =>
+        join(api, `UndPortal/portal-ebelge-scan/${startMonth}/${endMonth}`),
+
     /** Tarama işinin durumu ve ilerlemesi. */
     undPortalScanStatus: (api: string, jobId: string) => join(api, `UndPortal/scan-status/${encodeURIComponent(jobId)}`),
 

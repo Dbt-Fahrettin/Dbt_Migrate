@@ -1,7 +1,7 @@
 import { endpoints } from '../api/endpoints';
 import { runMigrationHistory, runMigrationTracking } from './migrationReports';
 import { runPortalDocCounts, runPortalEBookUsage } from './portalReports';
-import { invalidVkns, runEBelgeScan, runEBookScan, runUsageReport } from './portalUsage';
+import { invalidVkns, runEBelgeScan, runEBookScan, runPortalRestScan, runUsageReport } from './portalUsage';
 import type { OperationLog } from './operationLog';
 import { getRangeTarget, resolvePackTargets } from './packTargets';
 import { runQueuedOperation } from './queuedOperation';
@@ -26,6 +26,7 @@ export const OPERATION_KINDS = {
     portalEBookScan: 11,
     portalUsageReport: 12,
     portalEBelgeScan: 13,
+    portalRestScan: 14,
 } as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[keyof typeof OPERATION_KINDS];
@@ -111,6 +112,13 @@ export const OPERATIONS: OperationDefinition[] = [
             'mükelleflerin kendi e-belge kullanıcılarıyla her ay ve türde (e-Fatura, e-Arşiv, e-İrsaliye, e-SMM, e-MM) adet sayar, Login kullanım tablosuna yazar (arka plan işi)',
         isReadOnly: false,
     },
+    {
+        kind: OPERATION_KINDS.portalRestScan,
+        name: '14-Portal E-Belge Sayıları (bayi)',
+        description:
+            'bayi hesabıyla portaldaki BÜTÜN aktif müşteriler (Login\'de olmayanlar dahil), müşteri adına geçişle aylık e-belge adetleri; Login kullanım tablosuna yazar (arka plan işi, ~30 bin müşteri)',
+        isReadOnly: false,
+    },
 ];
 
 /** Devatek portalının bayi geneli raporları: paket kutularını (Start/End) kullanmaz, oturum belirteci ister. */
@@ -127,6 +135,7 @@ export function isPortalUsageOperation(kind: OperationKind): boolean {
     return (
         kind === OPERATION_KINDS.portalEBookScan ||
         kind === OPERATION_KINDS.portalEBelgeScan ||
+        kind === OPERATION_KINDS.portalRestScan ||
         kind === OPERATION_KINDS.portalUsageReport
     );
 }
@@ -356,6 +365,9 @@ export function runOperation(kind: OperationKind, request: OperationRequest): Pr
 
         case OPERATION_KINDS.portalEBelgeScan:
             return runEBelgeScan(request);
+
+        case OPERATION_KINDS.portalRestScan:
+            return runPortalRestScan(request);
 
         default:
             return Promise.resolve();

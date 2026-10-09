@@ -6,6 +6,7 @@ import {
     buildUsageCsv,
     parseVknList,
     runEBelgeScan,
+    runPortalRestScan,
     runEBookScan,
     runUsageReport,
     type PortalScanJobStatus,
@@ -135,6 +136,30 @@ describe('runEBookScan', () => {
         expect(urls[0]).toBe(`${API}/UndPortal/ebelge-scan/2026-08/2026-09`);
         expect(urls[1]).toBe(`${API}/UndPortal/scan-status/9`);
         expect(log.getSnapshot().lines.join(' ')).toContain('e-belge web servis kullanıcıları');
+    });
+
+    it('bayi taraması kendi ucunu çağırır, aynı durum ucuyla izler', async () => {
+        const urls: string[] = [];
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string) => {
+                urls.push(url);
+
+                return url.includes('portal-ebelge-scan')
+                    ? json({ jobId: '11', isFound: true, state: 'Enqueued', isFinished: false })
+                    : json({ jobId: '11', isFound: true, state: 'Succeeded', isFinished: true, progress: null });
+            }),
+        );
+
+        const log = new OperationLog();
+
+        await runPortalRestScan(usageRequest(log));
+        log.flushNow();
+
+        expect(urls[0]).toBe(`${API}/UndPortal/portal-ebelge-scan/2026-08/2026-09`);
+        expect(urls[1]).toBe(`${API}/UndPortal/scan-status/11`);
+        expect(log.getSnapshot().lines.join(' ')).toContain('bayinin portaldaki aktif müşterileri');
     });
 
     it('işi başlatamazsa 403 gerekçesini yazar', async () => {

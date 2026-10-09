@@ -69,7 +69,10 @@ export function ConsolePage() {
     const usesFunctionName = kind === OPERATION_KINDS.functionRenew;
     const isPortal = isPortalOperation(kind);
     const usesDocDates = kind === OPERATION_KINDS.updateSalerId || isPortal;
-    const isScan = kind === OPERATION_KINDS.portalEBookScan || kind === OPERATION_KINDS.portalEBelgeScan;
+    const isScan =
+        kind === OPERATION_KINDS.portalEBookScan ||
+        kind === OPERATION_KINDS.portalEBelgeScan ||
+        kind === OPERATION_KINDS.portalRestScan;
     const usesTaxpayerList = isPortal && !isScan;
     const usesVknList = isPortalUsageOperation(kind);
     const usesOnlyMissing = kind === OPERATION_KINDS.migrationTracking;

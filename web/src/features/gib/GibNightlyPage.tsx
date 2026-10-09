@@ -8,6 +8,7 @@ import { useAuth } from '../../auth/useAuth';
 import { isGibBlockedByMixedContent } from '../../config/environments';
 import { formatDate, formatDateTime } from '../../format';
 import { ConfirmDialog } from '../console/ConfirmDialog';
+import { FaultyUrlDiagnosisPanel } from './FaultyUrlDiagnosisPanel';
 import { ACTIONS, buildPatch } from './nightlyActions';
 import { PackRequeryPanel } from './PackRequeryPanel';
 import { XmlPurgePanel } from './XmlPurgePanel';
@@ -206,6 +207,8 @@ export function GibNightlyPage() {
             <PackRequeryPanel />
 
             <XmlPurgePanel />
+
+            <FaultyUrlDiagnosisPanel />
 
             {pending && (
                 <ConfirmDialog

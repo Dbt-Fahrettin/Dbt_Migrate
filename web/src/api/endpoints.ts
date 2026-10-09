@@ -149,6 +149,17 @@ export const gibEndpoints = {
     purgeJob: (gibApi: string) => join(gibApi, 'GibXmlStore/purge-job'),
     startPurgeJob: (gibApi: string) => join(gibApi, 'GibXmlStore/purge-job/start'),
     stopPurgeJob: (gibApi: string) => join(gibApi, 'GibXmlStore/purge-job/stop'),
+
+    /**
+     * XML'i alınamayan belge adreslerinin domain teşhisi (bkz. api/gibFaultyUrl.ts). İkisi de `[Authorize]`
+     * altında: teşhis ucu entegratör sunucularına istek atıyor.
+     */
+    faultyUrlHosts: (gibApi: string) => join(gibApi, 'GibInvoiceQuery/FaultyUrlHosts'),
+    diagnoseFaultyUrlHost: (gibApi: string, host: string, sampleCount: number) =>
+        `${join(gibApi, 'GibInvoiceQuery/DiagnoseFaultyUrlHost')}?${new URLSearchParams({
+            host,
+            sampleCount: String(sampleCount),
+        }).toString()}`,
 };
 
 /** Login.Api: kullanıcı adı + şifre doğrulama. */

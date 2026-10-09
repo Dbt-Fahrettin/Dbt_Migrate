@@ -62,10 +62,14 @@ function diagnosis(host: string, verdict: string, verdictText: string): FaultyUr
                 reasonText: verdictText,
                 hw: probe({ isOk: verdict === 'IpRestricted', statusCode: 200 }),
                 direct: probe({ statusCode: 403, kind: 'html', detail: 'HTTP 403; Erişim | reddedildi' }),
+                recovered: verdict === 'IpRestricted',
+                recoveryNote: verdict === 'IpRestricted' ? 'satır güncellendi (gib-hw)' : '',
             },
         ],
         directVantage: 'gib-api-7c9',
         elapsedSeconds: 12.3,
+        recoveredCount: verdict === 'IpRestricted' ? 1 : 0,
+        reopenedCount: verdict === 'IpRestricted' ? 40 : 0,
     };
 }
 
@@ -228,6 +232,9 @@ describe('report', () => {
 
         expect(markdown).toContain('| IP kısıtı | 1 | 5000 | Host GibDocumentRoutes:ViaHw');
         expect(markdown).toContain('| izibiz.com.tr | 5000 | 0 | 3 | 2026-10-01 | IP kısıtı |');
+        expect(markdown).toContain('| 2/2 | 0/2 | 1 | 40 |');
+        expect(markdown).toContain('**1** kayıt kapandı');
+        expect(markdown).toContain('**40** bırakılmış kayıt yeniden açıldı');
         expect(markdown).toContain('Teşhis ucu yanıt vermedi');
         expect(markdown).toContain('Erişim / reddedildi');
         expect(markdown).not.toContain('Erişim | reddedildi');
@@ -240,6 +247,7 @@ describe('report', () => {
         expect(csv.startsWith('﻿Domain;Karar;Adres')).toBe(true);
         expect(lines[1]).toContain('izibiz.com.tr;IP kısıtı;https://izibiz.com.tr/doc/1;2026-10-01;EArchive;500292;5;');
         expect(lines[1]).toContain('"HTTP 403; Erişim | reddedildi"');
+        expect(lines[1].endsWith(';evet;satır güncellendi (gib-hw)')).toBe(true);
         expect(lines.some((line) => line.startsWith('down.com;Teşhis ucu yanıt vermedi'))).toBe(true);
     });
 });

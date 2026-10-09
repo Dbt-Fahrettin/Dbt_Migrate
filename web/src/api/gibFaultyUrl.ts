@@ -12,7 +12,11 @@ import type { ApiResult } from './http';
  * - **k8s** — Gib.Api pod'unun kendisi, doğrudan (NAT çıkışı 213.250.144.198).
  *
  * İki yolun karşılaştırması IP kısıtını diğer nedenlerden ayırır; ikisi de alamazsa neden hata
- * metninden ve gövde imzasından çıkarılır. **Veri yazmaz**, XML saklanmaz.
+ * metninden ve gövde imzasından çıkarılır.
+ *
+ * **Alınan XML boşa gitmez:** örneğin XML'i alınırsa gece sweep'iyle aynı yoldan fatura satırına yazılır ve
+ * faulty kaydı kapanır. Domainden en az bir XML alındıysa o domainin bırakılmış kayıtları yeniden açılır
+ * (sayaçları sıfırlanır), yani domain yeniden indirilebilir listeye döner.
  *
  * İş tarayıcıda yapılamaz: entegratör adresleri CORS izni vermiyor ve sorun zaten sunucu IP'lerinde.
  * Bu yüzden konsol yalnız domain domain uç çağırır ve raporu toplar (bkz. features/gib/faultyUrlReport.ts).
@@ -58,6 +62,10 @@ export interface FaultyUrlSampleDiagnosis {
     reasonText: string;
     hw: FaultyUrlProbe;
     direct: FaultyUrlProbe;
+    /** XML fatura satırına yazıldı, faulty kaydı kapandı. */
+    recovered: boolean;
+    /** "satır güncellendi (k8s)", "yazılamadı: …", "yalnız PDF alındı…"; denenmediyse boş. */
+    recoveryNote: string;
 }
 
 export interface FaultyUrlHostDiagnosis {
@@ -75,6 +83,10 @@ export interface FaultyUrlHostDiagnosis {
     /** Doğrudan denemeyi yapan pod'un adı. */
     directVantage: string;
     elapsedSeconds: number;
+    /** Bu teşhiste XML'i yazılıp kapanan kayıt. */
+    recoveredCount: number;
+    /** Domainden XML alındığı için yeniden açılan bırakılmış kayıt. */
+    reopenedCount: number;
 }
 
 function authHeaders(token: string | null | undefined): Record<string, string> {

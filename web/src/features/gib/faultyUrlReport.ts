@@ -9,7 +9,8 @@ import type { ApiResult } from '../../api/http';
  *
  * Sunucu tek çağrıda tek domain teşhis ediyor (Cloudflare 100 sn sınırı); döngü domainleri birkaç
  * paralel işçiyle sırayla çağırıp sonuçları topluyor. Rapor istemcide üretilir: Markdown (domain
- * bazında karar) ve CSV (adres bazında ayrıntı). Belli aralıklarla koşulduğu için son koşunun
+ * bazında karar) ve CSV (adres bazında ayrıntı). Sunucu teşhis sırasında alınan XML'i yazar ve domaini
+ * yeniden indirilebilir listeye alır; rapor bunların sayısını da gösterir. Belli aralıklarla koşulduğu için son koşunun
  * domain kararları tarayıcıda saklanır, bir sonraki rapor "önceki karar" sütunuyla karşılaştırır.
  */
 
@@ -166,6 +167,17 @@ export const VERDICT_ACTIONS: Record<string, string> = {
     CallFailed: 'Teşhis ucu yanıt vermedi: bu domaini yeniden deneyin.',
 };
 
+/** Koşu toplamı: XML'i yazılan ve yeniden açılan kayıt. */
+export function runTotals(rows: DiagnosisHostRow[]): { recovered: number; reopened: number } {
+    return rows.reduce(
+        (sum, row) => ({
+            recovered: sum.recovered + (row.diagnosis?.recoveredCount ?? 0),
+            reopened: sum.reopened + (row.diagnosis?.reopenedCount ?? 0),
+        }),
+        { recovered: 0, reopened: 0 },
+    );
+}
+
 /** Domain kararına göre özet: kaç domain, kaç kayıt. Kayıt sayısına göre azalan. */
 export function summarizeByVerdict(
     rows: DiagnosisHostRow[],
@@ -300,7 +312,14 @@ export function buildMarkdownReport(run: DiagnosisRun, previous: DiagnosisSnapsh
     lines.push(
         `Ortam: ${run.environmentKey} · ${rows.length}/${run.plannedHostCount} domain · ${sampleTotal} örnek adres ` +
             `(domain başına en çok ${run.sampleCount}). Her adres gib-hw aracısından ve k8s'ten` +
-            `${vantage ? ` (${vantage})` : ''} doğrudan denendi; veri yazılmadı.`,
+            `${vantage ? ` (${vantage})` : ''} doğrudan denendi.`,
+    );
+
+    const totals = runTotals(rows);
+
+    lines.push(
+        `Alınan XML yazıldı: **${totals.recovered}** kayıt kapandı. XML alınabilen domainlerde **${totals.reopened}** ` +
+            'bırakılmış kayıt yeniden açıldı (gece sweep\'i ve RetryFaultyInvoicesByHost yeniden dener).',
     );
 
     if (previous) {
@@ -323,9 +342,9 @@ export function buildMarkdownReport(run: DiagnosisRun, previous: DiagnosisSnapsh
     lines.push('## Domain bazında');
     lines.push('');
     lines.push(
-        '| Domain | Açık | Bırakılmış | Paket | Son tarih | Karar | Örnek dağılımı | gib-hw | k8s | Değişim | Ayrıntı |',
+        '| Domain | Açık | Bırakılmış | Paket | Son tarih | Karar | Örnek dağılımı | gib-hw | k8s | Yazılan | Yeniden açılan | Değişim | Ayrıntı |',
     );
-    lines.push('|---|---:|---:|---:|---|---|---|---:|---:|---|---|');
+    lines.push('|---|---:|---:|---:|---|---|---|---:|---:|---:|---:|---|---|');
 
     for (const row of rows) {
         const s = row.summary;
@@ -334,7 +353,7 @@ export function buildMarkdownReport(run: DiagnosisRun, previous: DiagnosisSnapsh
         if (!d) {
             lines.push(
                 `| ${s.host} | ${s.pendingCount} | ${s.abandonedCount} | ${s.packCount} | ${dateOnly(s.lastDate)} | ` +
-                    `Teşhis ucu yanıt vermedi | | | | | ${mdCell(row.error)} |`,
+                    `Teşhis ucu yanıt vermedi | | | | | | | ${mdCell(row.error)} |`,
             );
 
             continue;
@@ -347,7 +366,8 @@ export function buildMarkdownReport(run: DiagnosisRun, previous: DiagnosisSnapsh
         lines.push(
             `| ${s.host} | ${s.pendingCount} | ${s.abandonedCount} | ${s.packCount} | ${dateOnly(s.lastDate)} | ` +
                 `${mdCell(d.verdictText)} | ${distribution} | ${d.hwOkCount}/${d.triedCount} | ` +
-                `${d.directOkCount}/${d.triedCount} | ${mdCell(describeChange(row, previous))} | ${mdCell(exampleDetail(d))} |`,
+                `${d.directOkCount}/${d.triedCount} | ${d.recoveredCount} | ${d.reopenedCount} | ` +
+                `${mdCell(describeChange(row, previous))} | ${mdCell(exampleDetail(d))} |`,
         );
     }
 
@@ -380,6 +400,8 @@ export function buildSamplesCsv(run: DiagnosisRun): string {
         'k8s gövde',
         'k8s ayrıntı',
         'k8s ms',
+        'Yazıldı',
+        'Yazma notu',
     ];
 
     const lines = [header.map(csvCell).join(';')];
@@ -410,6 +432,8 @@ export function buildSamplesCsv(run: DiagnosisRun): string {
                     sample.direct.kind ?? '',
                     sample.direct.detail ?? '',
                     String(sample.direct.elapsedMs),
+                    sample.recovered ? 'evet' : '',
+                    sample.recoveryNote ?? '',
                 ]
                     .map(csvCell)
                     .join(';'),

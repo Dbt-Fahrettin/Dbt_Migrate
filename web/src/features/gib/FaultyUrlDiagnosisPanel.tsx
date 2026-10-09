@@ -19,6 +19,7 @@ import {
     exampleDetail,
     fileStamp,
     recordCount,
+    runTotals,
     selectHosts,
     summarizeByVerdict,
 } from './faultyUrlReport';
@@ -30,8 +31,8 @@ import { useFaultyUrlRun } from './useFaultyUrlRun';
  * `DiagnoseFaultyUrlHost`.
  *
  * Belli aralıklarla koşulup rapor indirilmek için: her domainden örnek adresler gib-hw'den ve k8s'ten
- * denenir, domain başına neden ve önerilen adım çıkar. Veri yazmaz; yalnız entegratör sunucularına
- * okuma isteği atar.
+ * denenir, domain başına neden ve önerilen adım çıkar. Alınan XML sunucuda yazılır, XML alınabilen domainin
+ * bırakılmış kayıtları yeniden açılır.
  */
 export function FaultyUrlDiagnosisPanel() {
     const { environment, user } = useAuth();
@@ -139,8 +140,10 @@ export function FaultyUrlDiagnosisPanel() {
             <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                 Raporlanmamış faulty kayıtlarının belge adreslerini domain bazında dener: her domainden örnek adresler{' '}
                 <strong>gib-hw</strong> (101.44.33.54) ve <strong>k8s</strong> (213.250.144.198) üzerinden istenir, iki
-                yolun sonucu karşılaştırılarak XML'in neden alınamadığı çıkarılır. <strong>Veri yazmaz.</strong> Koşu
-                tamamlanınca kararlar bu tarayıcıda saklanır; sonraki raporda değişen domainler işaretlenir.
+                yolun sonucu karşılaştırılarak XML'in neden alınamadığı çıkarılır. <strong>Alınan XML yazılır</strong>{' '}
+                (faulty kaydı kapanır); XML alınabilen domainin bırakılmış kayıtları yeniden açılır ve gece sweep'i onları
+                yeniden dener. Koşu tamamlanınca kararlar bu tarayıcıda saklanır; sonraki raporda değişen domainler
+                işaretlenir.
             </p>
 
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -284,6 +287,7 @@ function RunResult({ run, rows }: { run: ReturnType<typeof useFaultyUrlRun>; row
     const percent = planned > 0 ? Math.min(100, Math.round((rows.length / planned) * 100)) : 0;
     const status = STATE_LABEL[run.state] ?? STATE_LABEL.idle;
     const groups = summarizeByVerdict(rows);
+    const totals = runTotals(rows);
     const sorted = [...rows].sort((a, b) => recordCount(b.summary) - recordCount(a.summary));
 
     return (
@@ -294,6 +298,11 @@ function RunResult({ run, rows }: { run: ReturnType<typeof useFaultyUrlRun>; row
                 <span className="text-sm text-slate-500 dark:text-slate-400">
                     · {rows.length}/{planned} domain (%{percent})
                 </span>
+                {(totals.recovered > 0 || totals.reopened > 0) && (
+                    <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                        {totals.recovered} XML yazıldı · {totals.reopened} kayıt yeniden açıldı
+                    </span>
+                )}
             </div>
 
             <div
@@ -375,6 +384,8 @@ function HostRow({ row, change }: { row: DiagnosisHostRow; change: string }) {
                             <span className="ml-2 font-normal text-slate-500 dark:text-slate-400">
                                 gib-hw {d.hwOkCount}/{d.triedCount} · k8s {d.directOkCount}/{d.triedCount} ·{' '}
                                 {d.elapsedSeconds.toFixed(0)} sn
+                                {d.recoveredCount > 0 && ` · ${d.recoveredCount} XML yazıldı`}
+                                {d.reopenedCount > 0 && ` · ${d.reopenedCount} kayıt yeniden açıldı`}
                             </span>
                         )}
                     </div>
@@ -402,6 +413,12 @@ function SampleList({ diagnosis }: { diagnosis: FaultyUrlHostDiagnosis }) {
                             ? 'alındı'
                             : `${sample.direct.statusCode > 0 ? `HTTP ${sample.direct.statusCode} ` : ''}${sample.direct.kind ?? ''} ${sample.direct.detail ?? ''}`}
                     </div>
+                    {sample.recoveryNote && (
+                        <div className={sample.recovered ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}>
+                            {sample.recovered ? 'XML yazıldı: ' : ''}
+                            {sample.recoveryNote}
+                        </div>
+                    )}
                 </li>
             ))}
         </ul>

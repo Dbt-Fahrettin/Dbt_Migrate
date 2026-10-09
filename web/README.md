@@ -190,6 +190,13 @@ npm run mobile:open    # Android Studio'da aç
 
 Çıktı: `android/app/build/outputs/apk/release/`.
 
+**JDK.** Android Gradle Plugin 8.x en az JVM 11 ister. Bu makinede PATH'teki `java` **8** (eski
+araçlar ona bağlı, değiştirmeyin) ve `JAVA_HOME` tanımlı değil — `mobile:apk` doğrudan gradlew'u
+çağırdığı için orada derleme "This build uses a Java 8 JVM" diye düşer. `npm run release` uygun bir
+JDK'yi kendi arar (önce `JAVA_HOME`, sonra Android Studio'nun kendi JDK'si, sonra bilinen kurulum
+kökleri) ve yalnız gradlew çağrısına verir; makine genelindeki `JAVA_HOME`'a dokunmaz. Hangisini
+seçtiğini `jdk:` satırında yazar. Yani **APK için `npm run release` kullanın.**
+
 **İmzalama.** Keystore bilgileri depoya girmez; `android/keystore.properties` dosyasından okunur ve
 o dosya `.gitignore`'dadır. Dosya yoksa release derlemesi çalışır ama `app-release-unsigned.apk`
 üretir ve gradle uyarı verir.

@@ -155,6 +155,17 @@ export const gibEndpoints = {
      * altında: teşhis ucu entegratör sunucularına istek atıyor.
      */
     faultyUrlHosts: (gibApi: string) => join(gibApi, 'GibInvoiceQuery/FaultyUrlHosts'),
+
+    /**
+     * Başka mükellefin satırına yazılmış XML'lerin onarımı (bkz. api/gibXmlRepair.ts). `[Authorize]`: veri siler.
+     * İmleçle parçalanır: `afterHash` önceki yanıtın `nextHash`'i.
+     */
+    repairCrossWrittenXml: (gibApi: string, dryRun: boolean, afterHash: string, maxGroups: number) =>
+        `${join(gibApi, 'GibInvoiceQuery/RepairCrossWrittenXml')}?${new URLSearchParams({
+            dryRun: String(dryRun),
+            afterHash,
+            maxGroups: String(maxGroups),
+        }).toString()}`,
     diagnoseFaultyUrlHost: (gibApi: string, host: string, sampleCount: number) =>
         `${join(gibApi, 'GibInvoiceQuery/DiagnoseFaultyUrlHost')}?${new URLSearchParams({
             host,

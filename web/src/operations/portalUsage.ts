@@ -26,6 +26,9 @@ export const USAGE_DOC_TYPES: Record<number, string> = {
 
 export const DOC_TYPE_EBOOK = 20;
 
+/** Login tablosundaki kaynak (Devatek.Models.EtrUsageSourceEnum.PortalDealer): rapor yalnız bayi taramalarını okur. */
+export const USAGE_SOURCE_PORTAL_DEALER = 1;
+
 export interface PortalUsageRow {
     vknTckn: string;
     vkn?: string | null;
@@ -139,12 +142,13 @@ function progressLine(progress: PortalScanProgress | null | undefined, state: st
 }
 
 /** Mükellef bazında tarama türleri: Service.Api'de ayrı Hangfire işleri, aynı ilerleme yapısı. */
-export type PortalScanKind = 'ebook' | 'ebelge' | 'rest';
+export type PortalScanKind = 'ebook' | 'ebelge' | 'rest' | 'restEbook';
 
 const SCAN_LABELS: Record<PortalScanKind, { title: string; credentials: string }> = {
-    ebook: { title: 'E-Defter Boyut Taraması', credentials: 'e-Defter kimlikleri' },
-    ebelge: { title: 'E-Belge Adet Taraması', credentials: 'e-belge web servis kullanıcıları' },
+    ebook: { title: 'E-Defter Boyut Taraması', credentials: "Login'deki e-Defter kimlikleri" },
+    ebelge: { title: 'E-Belge Adet Taraması', credentials: "Login'deki e-belge web servis kullanıcıları" },
     rest: { title: 'Portal E-Belge Taraması (bayi)', credentials: 'bayinin portaldaki aktif müşterileri' },
+    restEbook: { title: 'Portal E-Defter Taraması (bayi)', credentials: 'bayinin portaldaki aktif müşterileri' },
 };
 
 /**
@@ -161,6 +165,14 @@ export function runEBookScan(request: PortalUsageRequest): Promise<void> {
  */
 export function runPortalRestScan(request: PortalUsageRequest): Promise<void> {
     return runPortalScan('rest', request);
+}
+
+/**
+ * 15-Portal E-Defter Boyutları (bayi) — bayi hesabıyla bütün aktif müşterilerin e-Defter dönemleri (MB/parça/durum);
+ * Login'deki e-Defter şifreleri gerekmez. Sonuç 11 ile aynı tabloya yazılır, 12 ile raporlanır.
+ */
+export function runPortalRestEBookScan(request: PortalUsageRequest): Promise<void> {
+    return runPortalScan('restEbook', request);
 }
 
 /** 13-E-Belge Sayılarını Güncelle — her ay ve belge türü için adet; izleme 11 ile aynı. */
@@ -181,12 +193,14 @@ async function runPortalScan(kind: PortalScanKind, request: PortalUsageRequest):
             ? endpoints.undPortalEBookScan(apiBaseUrl, startMonth, endMonth)
             : kind === 'ebelge'
               ? endpoints.undPortalEBelgeScan(apiBaseUrl, startMonth, endMonth)
-              : endpoints.undPortalRestScan(apiBaseUrl, startMonth, endMonth);
+              : kind === 'rest'
+                ? endpoints.undPortalRestScan(apiBaseUrl, startMonth, endMonth)
+                : endpoints.undPortalRestEBookScan(apiBaseUrl, startMonth, endMonth);
 
     log.setOperation(`${labels.title} - ${url}`);
     log.setStatus(`${operationName} - Başladı`, 'running');
     log.addLine(`Dönem    : ${startMonth} → ${endMonth} (ayın 1'i → son ayın son günü)`);
-    log.addLine(`Mükellef : ${vkns.length > 0 ? vkns.join(', ') : `tümü (Login'deki ${labels.credentials})`}`);
+    log.addLine(`Mükellef : ${vkns.length > 0 ? vkns.join(', ') : `tümü (${labels.credentials})`}`);
     log.flushNow();
 
     const started = await postJson<PortalScanJobStatus>(url, vkns, signal, authHeaders(request.token));
@@ -293,7 +307,7 @@ export async function runUsageReport(request: PortalUsageRequest): Promise<void>
     const vkns = parseVknList(request.vknText);
     const counters = emptyCounters();
 
-    const url = endpoints.undPortalUsageReport(apiBaseUrl, startMonth, endMonth, null, vkns);
+    const url = endpoints.undPortalUsageReport(apiBaseUrl, startMonth, endMonth, null, vkns, USAGE_SOURCE_PORTAL_DEALER);
 
     log.setOperation(`Portal Kullanım Raporu - ${url}`);
     log.setStatus(`${operationName} - Başladı`, 'running');
@@ -314,7 +328,7 @@ export async function runUsageReport(request: PortalUsageRequest): Promise<void>
     const rows = result.data;
 
     if (rows.length === 0) {
-        log.addLine('Bu dönemde satır yok — önce "11-E-Defter Boyutlarını Güncelle" ile tarayın.');
+        log.addLine('Bu dönemde satır yok — önce "14-Portal E-Belge Sayıları (bayi)" ve "15-Portal E-Defter Boyutları (bayi)" ile tarayın.');
         counters.success += 1;
         finish(log, operationName, counters);
 

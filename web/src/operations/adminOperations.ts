@@ -1,7 +1,14 @@
 import { endpoints } from '../api/endpoints';
 import { runMigrationHistory, runMigrationTracking } from './migrationReports';
 import { runPortalDocCounts, runPortalEBookUsage } from './portalReports';
-import { invalidVkns, runEBelgeScan, runEBookScan, runPortalRestScan, runUsageReport } from './portalUsage';
+import {
+    invalidVkns,
+    runEBelgeScan,
+    runEBookScan,
+    runPortalRestEBookScan,
+    runPortalRestScan,
+    runUsageReport,
+} from './portalUsage';
 import type { OperationLog } from './operationLog';
 import { getRangeTarget, resolvePackTargets } from './packTargets';
 import { runQueuedOperation } from './queuedOperation';
@@ -27,6 +34,7 @@ export const OPERATION_KINDS = {
     portalUsageReport: 12,
     portalEBelgeScan: 13,
     portalRestScan: 14,
+    portalRestEBookScan: 15,
 } as const;
 
 export type OperationKind = (typeof OPERATION_KINDS)[keyof typeof OPERATION_KINDS];
@@ -43,6 +51,11 @@ export interface OperationDefinition {
     isReadOnly: boolean;
 }
 
+/**
+ * Listede görünen işlemler. Portal kullanımında yalnız bayi taramaları (14, 15) ve rapor (12) kalır; eski portal işlemleri
+ * (9/10 bayi SOAP raporları boş döndüğü, 11/13 Login'deki kimliklerin bir kısmı geçersiz ve Login dışındaki müşterileri
+ * kapsamadığı için) listeden kaldırıldı — kodları ve sunucu uçları duruyor.
+ */
 export const OPERATIONS: OperationDefinition[] = [
     {
         kind: OPERATION_KINDS.migrate,
@@ -81,43 +94,25 @@ export const OPERATIONS: OperationDefinition[] = [
         isReadOnly: true,
     },
     {
-        kind: OPERATION_KINDS.portalDocCounts,
-        name: '9-Portal E-Belge Sayıları',
-        description: 'devadonusum portalındaki tüm mükelleflerin belge adetleri, türe göre (paket kullanılmaz)',
-        isReadOnly: true,
-    },
-    {
-        kind: OPERATION_KINDS.portalEBookUsage,
-        name: '10-Portal E-Defter Kullanımı',
-        description: 'portaldaki tüm mükelleflerin e-Defter yükleme adedi ve harcanan alanı, ay ay (paket kullanılmaz)',
-        isReadOnly: true,
-    },
-    {
-        kind: OPERATION_KINDS.portalEBookScan,
-        name: '11-E-Defter Boyutlarını Güncelle',
-        description:
-            'mükelleflerin kendi e-Defter kimlikleriyle portalı tarar, dönem başına MB/adet/durumu Login kullanım tablosuna yazar (arka plan işi)',
-        isReadOnly: false,
-    },
-    {
-        kind: OPERATION_KINDS.portalUsageReport,
-        name: '12-Portal Kullanım Raporu',
-        description: 'Login kullanım tablosundan ay ay mükellef/adet/MB toplamları; tüm satırlar Excel (CSV) olarak iner',
-        isReadOnly: true,
-    },
-    {
-        kind: OPERATION_KINDS.portalEBelgeScan,
-        name: '13-E-Belge Sayılarını Güncelle',
-        description:
-            'mükelleflerin kendi e-belge kullanıcılarıyla her ay ve türde (e-Fatura, e-Arşiv, e-İrsaliye, e-SMM, e-MM) adet sayar, Login kullanım tablosuna yazar (arka plan işi)',
-        isReadOnly: false,
-    },
-    {
         kind: OPERATION_KINDS.portalRestScan,
         name: '14-Portal E-Belge Sayıları (bayi)',
         description:
             'bayi hesabıyla portaldaki BÜTÜN aktif müşteriler (Login\'de olmayanlar dahil), müşteri adına geçişle aylık e-belge adetleri; Login kullanım tablosuna yazar (arka plan işi, ~30 bin müşteri)',
         isReadOnly: false,
+    },
+    {
+        kind: OPERATION_KINDS.portalRestEBookScan,
+        name: '15-Portal E-Defter Boyutları (bayi)',
+        description:
+            'bayi hesabıyla portaldaki BÜTÜN aktif müşterilerin e-Defter dönemleri (MB/parça/durum), müşteri adına geçişle; e-Defter şifresi gerekmez (arka plan işi, ~30 bin müşteri)',
+        isReadOnly: false,
+    },
+    {
+        kind: OPERATION_KINDS.portalUsageReport,
+        name: '12-Portal Kullanım Raporu',
+        description:
+            'bayi taramalarının (14, 15) sonuçlarından ay ay mükellef/adet/MB toplamları ve dönem özeti; tüm satırlar Excel (CSV) olarak iner',
+        isReadOnly: true,
     },
 ];
 
@@ -136,6 +131,7 @@ export function isPortalUsageOperation(kind: OperationKind): boolean {
         kind === OPERATION_KINDS.portalEBookScan ||
         kind === OPERATION_KINDS.portalEBelgeScan ||
         kind === OPERATION_KINDS.portalRestScan ||
+        kind === OPERATION_KINDS.portalRestEBookScan ||
         kind === OPERATION_KINDS.portalUsageReport
     );
 }
@@ -368,6 +364,9 @@ export function runOperation(kind: OperationKind, request: OperationRequest): Pr
 
         case OPERATION_KINDS.portalRestScan:
             return runPortalRestScan(request);
+
+        case OPERATION_KINDS.portalRestEBookScan:
+            return runPortalRestEBookScan(request);
 
         default:
             return Promise.resolve();

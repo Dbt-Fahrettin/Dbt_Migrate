@@ -6,6 +6,7 @@ import {
     buildUsageCsv,
     parseVknList,
     runEBelgeScan,
+    runPortalRestEBookScan,
     runPortalRestScan,
     runEBookScan,
     runUsageReport,
@@ -162,6 +163,30 @@ describe('runEBookScan', () => {
         expect(log.getSnapshot().lines.join(' ')).toContain('bayinin portaldaki aktif müşterileri');
     });
 
+    it('bayi e-Defter taraması kendi ucunu çağırır', async () => {
+        const urls: string[] = [];
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string) => {
+                urls.push(url);
+
+                return url.includes('portal-ebook-scan')
+                    ? json({ jobId: '12', isFound: true, state: 'Enqueued', isFinished: false })
+                    : json({ jobId: '12', isFound: true, state: 'Succeeded', isFinished: true, progress: null });
+            }),
+        );
+
+        const log = new OperationLog();
+
+        await runPortalRestEBookScan(usageRequest(log));
+        log.flushNow();
+
+        expect(urls[0]).toBe(`${API}/UndPortal/portal-ebook-scan/2026-08/2026-09`);
+        expect(log.getSnapshot().operation).toContain('Portal E-Defter Taraması (bayi)');
+        expect(log.getSnapshot().lines.join(' ')).toContain('tümü (bayinin portaldaki aktif müşterileri)');
+    });
+
     it('işi başlatamazsa 403 gerekçesini yazar', async () => {
         vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 403 })));
 
@@ -228,7 +253,8 @@ describe('runUsageReport', () => {
         );
         log.flushNow();
 
-        expect(urls[0]).toBe(`${API}/UndPortal/usage-report/2026-08/2026-09?vkns=0123456789%2C12345678901`);
+        // Rapor yalnız bayi taramasının satırlarını ister (source=1).
+        expect(urls[0]).toBe(`${API}/UndPortal/usage-report/2026-08/2026-09?source=1&vkns=0123456789%2C12345678901`);
 
         const text = log.getSnapshot().lines.join('\n');
         expect(text).toContain('e-Defter');
@@ -250,7 +276,7 @@ describe('runUsageReport', () => {
         await runUsageReport(usageRequest(log, { download }));
         log.flushNow();
 
-        expect(log.getSnapshot().lines.join('\n')).toContain('11-E-Defter');
+        expect(log.getSnapshot().lines.join('\n')).toContain('14-Portal E-Belge');
         expect(download).not.toHaveBeenCalled();
     });
 });

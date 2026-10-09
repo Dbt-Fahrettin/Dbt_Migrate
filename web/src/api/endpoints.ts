@@ -85,15 +85,33 @@ export const endpoints = {
     undPortalRestScan: (api: string, startMonth: string, endMonth: string) =>
         join(api, `UndPortal/portal-ebelge-scan/${startMonth}/${endMonth}`),
 
+    /** 15-Portal E-Defter Boyutları (bayi) — bayinin bütün aktif müşterileri, müşteri adına geçişle PortalExt. */
+    undPortalRestEBookScan: (api: string, startMonth: string, endMonth: string) =>
+        join(api, `UndPortal/portal-ebook-scan/${startMonth}/${endMonth}`),
+
     /** Tarama işinin durumu ve ilerlemesi. */
     undPortalScanStatus: (api: string, jobId: string) => join(api, `UndPortal/scan-status/${encodeURIComponent(jobId)}`),
 
-    /** 12-Portal Kullanım Raporu — Login'deki kullanım tablosu; tür boşsa hepsi, VKN listesi virgülle. */
-    undPortalUsageReport: (api: string, startMonth: string, endMonth: string, docType: number | null, vkns: string[]) => {
+    /**
+     * 12-Portal Kullanım Raporu — Login'deki kullanım tablosu; tür/kaynak boşsa hepsi (kaynak 1 = bayi taraması), VKN
+     * listesi virgülle.
+     */
+    undPortalUsageReport: (
+        api: string,
+        startMonth: string,
+        endMonth: string,
+        docType: number | null,
+        vkns: string[],
+        source: number | null = null,
+    ) => {
         const query = new URLSearchParams();
 
         if (docType != null) {
             query.set('docType', String(docType));
+        }
+
+        if (source != null) {
+            query.set('source', String(source));
         }
 
         if (vkns.length > 0) {

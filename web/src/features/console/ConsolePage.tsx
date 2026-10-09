@@ -72,7 +72,8 @@ export function ConsolePage() {
     const isScan =
         kind === OPERATION_KINDS.portalEBookScan ||
         kind === OPERATION_KINDS.portalEBelgeScan ||
-        kind === OPERATION_KINDS.portalRestScan;
+        kind === OPERATION_KINDS.portalRestScan ||
+        kind === OPERATION_KINDS.portalRestEBookScan;
     const usesTaxpayerList = isPortal && !isScan;
     const usesVknList = isPortalUsageOperation(kind);
     const usesOnlyMissing = kind === OPERATION_KINDS.migrationTracking;

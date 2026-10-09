@@ -4,7 +4,8 @@
  * Sürüm numarasının tek kaynağı package.json. Script onu Android tarafına da yazar, böylece
  * web ile APK'nin sürümü ayrışmaz — ayrıştığında "hangi build?" sorusu cevapsız kalır.
  *
- * Çalıştırma:  npm run release
+ * Çalıştırma:  npm run release       tam paket (web + APK + release/)
+ *              npm run mobile:apk    yalnız APK (--apk-only; release/ paketlenmez)
  * Ön koşullar: JDK 17+ (JAVA_HOME gerekmez — script arayıp bulur, aşağıya bakın),
  *              Android SDK (android/local.properties),
  *              imza için android/keystore.properties (yoksa APK imzasız üretilir ve uyarılırsınız).
@@ -21,6 +22,28 @@ const androidDir = join(root, 'android');
 
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const version = pkg.version;
+
+/**
+ * `--apk-only`: web derlenir ve APK üretilir, `release/` paketlenmez.
+ *
+ * `npm run mobile:apk` bunu kullanıyor. Eskiden o komut gradlew'u doğrudan çağırıyordu ve
+ * aşağıdaki JDK bulma adımını atladığı için Java 8'e düşüp derleme patlıyordu; APK üretmenin
+ * tek yolu artık bu script.
+ */
+const apkOnly = process.argv.includes('--apk-only');
+const stepCount = apkOnly ? 3 : 4;
+
+let stepNo = 0;
+
+function step(title) {
+    stepNo += 1;
+
+    if (stepNo > 1) {
+        console.log('');
+    }
+
+    console.log(`[${stepNo}/${stepCount}] ${title}`);
+}
 
 /** 1.2.3 → 10203. Monoton artar; Android versionCode'un tek şartı budur. */
 function versionCode(semver) {
@@ -166,11 +189,11 @@ function syncAndroidVersion() {
 console.log(`\nDbt Admin Console — yayın paketi v${version} (${gitSha()})\n`);
 
 // 1) Web
-console.log('[1/4] Web derleniyor');
+step('Web derleniyor');
 run('npm run build');
 
 // 2) Android sürümü + senkron
-console.log('\n[2/4] Android senkronu');
+step('Android senkronu');
 
 const hasAndroid = syncAndroidVersion();
 
@@ -184,7 +207,7 @@ if (!hasAndroid) {
 let apkPath = '';
 
 if (hasAndroid) {
-    console.log('\n[3/4] APK derleniyor');
+    step('APK derleniyor');
 
     const javaHome = resolveJavaHome();
 
@@ -215,11 +238,24 @@ if (hasAndroid) {
         console.log('  Ayrıntı için README > Android APK > İmzalama.\n');
     }
 } else {
-    console.log('\n[3/4] APK atlandı');
+    step('APK atlandı');
+}
+
+if (apkOnly) {
+    if (!apkPath) {
+        console.error('\nAPK üretilmedi.');
+
+        process.exit(1);
+    }
+
+    console.log(`\nHazır: ${apkPath}`);
+    console.log(`  ${version} (${gitSha()}) — ${apkPath.endsWith('app-release.apk') ? 'imzalı' : 'İMZASIZ, cihaza kurulamaz'}\n`);
+
+    process.exit(0);
 }
 
 // 4) Paketleme
-console.log('\n[4/4] release/ hazırlanıyor');
+step('release/ hazırlanıyor');
 
 rmSync(releaseDir, { recursive: true, force: true });
 mkdirSync(releaseDir, { recursive: true });

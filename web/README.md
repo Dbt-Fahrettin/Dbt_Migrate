@@ -184,18 +184,24 @@ paylaşılan kodun hiçbirini değiştirmez.
 
 ```bash
 npm run mobile:sync    # build + cap sync
-npm run mobile:apk     # build + sync + assembleRelease
+npm run mobile:apk     # build + sync + APK (release/ paketlenmez)
 npm run mobile:open    # Android Studio'da aç
 ```
 
 Çıktı: `android/app/build/outputs/apk/release/`.
 
 **JDK.** Android Gradle Plugin 8.x en az JVM 11 ister. Bu makinede PATH'teki `java` **8** (eski
-araçlar ona bağlı, değiştirmeyin) ve `JAVA_HOME` tanımlı değil — `mobile:apk` doğrudan gradlew'u
-çağırdığı için orada derleme "This build uses a Java 8 JVM" diye düşer. `npm run release` uygun bir
-JDK'yi kendi arar (önce `JAVA_HOME`, sonra Android Studio'nun kendi JDK'si, sonra bilinen kurulum
-kökleri) ve yalnız gradlew çağrısına verir; makine genelindeki `JAVA_HOME`'a dokunmaz. Hangisini
-seçtiğini `jdk:` satırında yazar. Yani **APK için `npm run release` kullanın.**
+araçlar ona bağlı, değiştirmeyin) ve `JAVA_HOME` tanımlı değil; gradlew doğrudan çağrıldığında
+derleme `"This build uses a Java 8 JVM"` diye düşer.
+
+`scripts/release.mjs` uygun bir JDK'yi kendi arıyor — önce `JAVA_HOME`, sonra Android Studio'nun
+kendi JDK'si, sonra bilinen kurulum kökleri; Java 17+ olan ilkini seçip **yalnız gradlew çağrısına**
+veriyor. Makine genelindeki `JAVA_HOME`'a dokunmuyor (Java 8'e bağlı araçlar etkilenmesin) ve
+hangisini seçtiğini `jdk:` satırında yazıyor. Hiçbiri bulunamazsa nerelere baktığını söyleyip duruyor.
+
+`mobile:apk` de bu script'i çağırıyor (`--apk-only`: web + APK üretir, `release/` paketlemez), yani
+gradlew doğrudan çağrılmıyor. **APK üretmenin tek yolu bu iki komut.** Gradle elle çalıştırılacaksa
+`JAVA_HOME` önce elle verilmeli.
 
 **İmzalama.** Keystore bilgileri depoya girmez; `android/keystore.properties` dosyasından okunur ve
 o dosya `.gitignore`'dadır. Dosya yoksa release derlemesi çalışır ama `app-release-unsigned.apk`

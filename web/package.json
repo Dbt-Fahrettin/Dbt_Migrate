@@ -11,7 +11,7 @@
     "test": "vitest run",
     "icons": "node scripts/generate-icons.mjs",
     "mobile:sync": "npm run build && npx cap sync android",
-    "mobile:apk": "npm run build && npx cap sync android && cd android && .\\gradlew.bat assembleRelease",
+    "mobile:apk": "node scripts/release.mjs --apk-only",
     "mobile:open": "npx cap open android",
     "release": "node scripts/release.mjs",
     "build:local": "node scripts/build-local.mjs",

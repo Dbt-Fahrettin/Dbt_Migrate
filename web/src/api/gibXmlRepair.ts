@@ -60,3 +60,51 @@ export function repairCrossWrittenXml(
         token ? { Authorization: `Bearer ${token}` } : {},
     );
 }
+
+/** Geri yüklemede bir satıra ne yapıldığı. */
+export interface ClearedXmlRestoreRow {
+    id: string;
+    packNo?: number | null;
+    faturaNo: string;
+    faturaTarihi: string;
+    direction: string;
+    docType: string;
+    /** Yazıldı, Yazılacak, Adres yok, Alınamadı, Reddedildi. */
+    action: string;
+    note: string;
+}
+
+export interface ClearedXmlRestoreResult {
+    isDryRun: boolean;
+    rowCount: number;
+    writtenRows: number;
+    noUrlRows: number;
+    notFetchedRows: number;
+    rejectedRows: number;
+    nextCounter: number;
+    hasMore: boolean;
+    elapsedSeconds: number;
+    rows: ClearedXmlRestoreRow[];
+}
+
+/**
+ * Onarımın (09.10.2026) şahıs şirketlerinde yanlışlıkla boşalttığı XML'leri geri yükler: penceredeki XML'i boş satırların
+ * belgesi kendi adresinden yeniden alınır, satırla tutarsa yazılır. `dryRun` indirir ama yazmaz.
+ */
+export function restoreClearedXml(
+    gibApiBaseUrl: string,
+    token: string | null | undefined,
+    fromUtc: string,
+    toUtc: string,
+    dryRun: boolean,
+    afterCounter: number,
+    maxRows: number,
+    signal?: AbortSignal,
+): Promise<ApiResult<ClearedXmlRestoreResult>> {
+    return postJson<ClearedXmlRestoreResult>(
+        gibEndpoints.restoreClearedXml(gibApiBaseUrl, fromUtc, toUtc, dryRun, afterCounter, maxRows),
+        {},
+        signal,
+        token ? { Authorization: `Bearer ${token}` } : {},
+    );
+}

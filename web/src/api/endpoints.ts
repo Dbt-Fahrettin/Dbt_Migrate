@@ -160,6 +160,16 @@ export const gibEndpoints = {
      * Başka mükellefin satırına yazılmış XML'lerin onarımı (bkz. api/gibXmlRepair.ts). `[Authorize]`: veri siler.
      * İmleçle parçalanır: `afterHash` önceki yanıtın `nextHash`'i.
      */
+    /** Onarımın yanlışlıkla boşalttığı XML'lerin geri yüklenmesi; pencere UTC, imleç `afterCounter`. */
+    restoreClearedXml: (gibApi: string, fromUtc: string, toUtc: string, dryRun: boolean, afterCounter: number, maxRows: number) =>
+        `${join(gibApi, 'GibInvoiceQuery/RestoreClearedXml')}?${new URLSearchParams({
+            fromUtc,
+            toUtc,
+            dryRun: String(dryRun),
+            afterCounter: String(afterCounter),
+            maxRows: String(maxRows),
+        }).toString()}`,
+
     repairCrossWrittenXml: (gibApi: string, dryRun: boolean, afterHash: string, maxGroups: number) =>
         `${join(gibApi, 'GibInvoiceQuery/RepairCrossWrittenXml')}?${new URLSearchParams({
             dryRun: String(dryRun),

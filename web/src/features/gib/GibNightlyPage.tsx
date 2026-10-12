@@ -9,6 +9,7 @@ import { isGibBlockedByMixedContent } from '../../config/environments';
 import { formatDate, formatDateTime } from '../../format';
 import { ConfirmDialog } from '../console/ConfirmDialog';
 import { FaultyUrlDiagnosisPanel } from './FaultyUrlDiagnosisPanel';
+import { ClearedXmlRestorePanel } from './ClearedXmlRestorePanel';
 import { XmlRepairPanel } from './XmlRepairPanel';
 import { ACTIONS, buildPatch } from './nightlyActions';
 import { PackRequeryPanel } from './PackRequeryPanel';
@@ -212,6 +213,8 @@ export function GibNightlyPage() {
             <FaultyUrlDiagnosisPanel />
 
             <XmlRepairPanel />
+
+            <ClearedXmlRestorePanel />
 
             {pending && (
                 <ConfirmDialog

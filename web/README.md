@@ -296,18 +296,31 @@ kasıtlı bir kilit.
 
 ## Güvenlik — okunması gereken kısım
 
-> Service.Api'nin `master` uçları **kimlik doğrulaması istemiyor** (`MasterController`'da
-> `[Authorize]` yok, `Startup.cs`'te global authorize filter yok, CORS `SetIsOriginAllowed(_ => true)`).
-> Giriş *kişiyi* doğrular, *api çağrılarını korumaz* — uç adreslerini bilen biri konsolu hiç açmadan
-> aynı işlemleri tetikler.
+**Bakım uçları 13.10.2026'dan beri servis anahtarı istiyor** (unideva `41dedbbb9f`).
+`MasterController`'ın tamamı ve `dbtRenewal/updateSalerPackCompanies` `[ServiceKeyRequired]`
+taşıyor: istek `X-Svc-Key` başlığında doğru anahtarı taşımıyorsa sunucu **404** döner.
 
-Kalıcı oturum bu yüzden bir güvenlik sınırı değil, yalnız kolaylıktır; cihaza erişen biri konsolu
-açabilir. Prod oturumunun 12 saatle sınırlı olmasının tek gerekçesi budur.
+> **404 gördüğünüzde ilk bakılacak yer burasıdır.** Filtre bilerek 404 veriyor — ucun varlığını
+> tarayan birine açık etmemek için. Yani "uç yok / sunucu sürümü eski" demek değildir. Aynı 404
+> iki ayrı durumda gelir: (1) anahtar eksik/yanlış, (2) **sunucuda anahtar hiç tanımlı değil**
+> (fail-closed). İkisini ayıran tek şey sunucunun log satırıdır: filtre her reddi
+> `anahtar tanımlı: true/false` diye yazar.
 
-Gerçek koruma için ikisinden biri gerekir: konsolu yalnız iç ağda/VPN arkasında yayınlamak, ya da
-`master` uçlarına kimlik doğrulama eklemek. İkincisi yapılırsa girişte alınan `lat` belirteci
-çağrılara eklenebilir (`LoginResponse.lat` bu yüzden saklanıyor). CI/CD bu uçları çağırmıyor, yani
-auth eklemenin maliyeti düşük.
+Sunucudaki karşılığı `ServiceKeys:Admin`; k8s'te `und-api-secret` → `und-admin-service-key`
+ve `secretKeyRef` **`optional: true`** — secret'ta anahtar yoksa pod sorunsuz kalkar, env boş
+kalır ve uçlar herkese kapanır. 16 karakterden kısa değer "tanımsız" sayılır.
+
+**Anahtar pakete gömülmüyor.** Konsolda elle girilir (Migration İşlemleri → *Servis anahtarı*) ve
+yalnız o cihazın `localStorage`'ında, ortam başına ayrı durur (`src/api/serviceKey.ts`). Gerekçe:
+bu anahtar canlı veritabanlarında migration koşturur ve satışçı atamalarını değiştirir; derleme
+sırasında gömülseydi hem tarayıcı paketinde hem telefondaki APK'de açıkta dururdu.
+
+Giriş (Login.Api) hâlâ *kişiyi* doğrular, çağrıları korumaz — asıl sınır servis anahtarıdır.
+Kalıcı oturum bir güvenlik sınırı değil, yalnız kolaylıktır; cihaza erişen biri konsolu açabilir
+ve oradaki anahtarı okuyabilir. Prod oturumunun 12 saatle sınırlı olmasının gerekçesi budur.
+
+Portal işlemleri (9, 10, 11-14) bu anahtarı kullanmaz; onlar `[Authorize]` altında, girişte
+alınan `lat` belirteciyle çağrılır.
 
 ## Kuyruk + izleme motoru
 

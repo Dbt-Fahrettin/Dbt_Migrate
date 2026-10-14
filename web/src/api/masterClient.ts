@@ -1,13 +1,15 @@
 import { endpoints } from './endpoints';
 import { getJson, postJson } from './http';
 import type { ApiResult } from './http';
+import { serviceKeyHeaders } from './serviceKey';
 import type { JobStatus } from '../operations/types';
 
 /**
  * Service.Api'nin master uçlarına giden çağrılar.
  *
- * Not: bu uçlar kimlik doğrulaması istemiyor, bu yüzden istekler Authorization başlığı taşımıyor.
- * Uçlara auth eklendiğinde tek değişecek yer burasıdır (girişte alınan LoginResponse.lat).
+ * Bu uçlar paket belirteci (Authorization) istemiyor; 13.10.2026'dan beri **servis anahtarı**
+ * istiyorlar — `X-Svc-Key`, bkz. `serviceKey.ts`. Anahtar yoksa sunucu 404 döner, "uç yok" gibi
+ * görünür. `test` ucu TestController'dadır, anahtar istemez.
  */
 
 /** Sunucu bazen düz dizi, bazen JSON string içinde dizi döndürebiliyor; ikisini de kabul et. */
@@ -44,7 +46,7 @@ export function testService(apiBaseUrl: string, signal?: AbortSignal): Promise<A
 }
 
 export function getDbtDatNames(apiBaseUrl: string, prefix: string, signal?: AbortSignal): Promise<ApiResult> {
-    return getJson(endpoints.dbtDatNames(apiBaseUrl, prefix), signal);
+    return getJson(endpoints.dbtDatNames(apiBaseUrl, prefix), signal, serviceKeyHeaders(apiBaseUrl));
 }
 
 /** Yalnız ad listesi lazımsa: hata durumunda boş dizi. */
@@ -63,7 +65,7 @@ export async function getDbtDatNamesList(
 }
 
 export function getDbtMigrations(apiBaseUrl: string, signal?: AbortSignal): Promise<ApiResult> {
-    return getJson(endpoints.dbtMigrations(apiBaseUrl), signal);
+    return getJson(endpoints.dbtMigrations(apiBaseUrl), signal, serviceKeyHeaders(apiBaseUrl));
 }
 
 /**
@@ -73,7 +75,12 @@ export function getDbtMigrations(apiBaseUrl: string, signal?: AbortSignal): Prom
  * sonraki turda tekrar sorar. Hata fırlatmaz; izleme döngüsü tek bir aksaklıkta ölmemeli.
  */
 export async function getStatusesBulk(apiBaseUrl: string, jobIds: string[]): Promise<JobStatus[] | null> {
-    const result = await postJson<JobStatus[]>(endpoints.migrateStatusBulk(apiBaseUrl), jobIds);
+    const result = await postJson<JobStatus[]>(
+        endpoints.migrateStatusBulk(apiBaseUrl),
+        jobIds,
+        undefined,
+        serviceKeyHeaders(apiBaseUrl),
+    );
 
     if (!result.isSuccess || !Array.isArray(result.data)) {
         return null;

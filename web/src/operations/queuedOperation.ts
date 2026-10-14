@@ -1,5 +1,6 @@
 import { getJson } from '../api/http';
 import { getStatusesBulk } from '../api/masterClient';
+import { serviceKeyHeaders } from '../api/serviceKey';
 import type { OperationLog } from './operationLog';
 import type { EnqueueResult, JobItem, JobStatus, OperationCounters, PackTarget } from './types';
 import { emptyCounters } from './types';
@@ -189,7 +190,11 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
                 await delay(1000);
             }
 
-            const result = await getJson<EnqueueResult>(buildEnqueueUrl(target));
+            const result = await getJson<EnqueueResult>(
+                buildEnqueueUrl(target),
+                undefined,
+                serviceKeyHeaders(apiBaseUrl),
+            );
 
             const jobId = result.isSuccess ? (result.data?.jobId ?? '') : '';
 

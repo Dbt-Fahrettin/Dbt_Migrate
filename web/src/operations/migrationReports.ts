@@ -1,5 +1,6 @@
 import { endpoints } from '../api/endpoints';
 import { getJson } from '../api/http';
+import { serviceKeyHeaders } from '../api/serviceKey';
 import { formatDateTime } from '../format';
 import type { OperationLog } from './operationLog';
 import { emptyCounters } from './types';
@@ -121,7 +122,7 @@ export async function runMigrationHistory(request: ReportRequest): Promise<void>
     log.setStatus(`${operationName} - Başladı`, 'running');
     log.addLine(`${packName} - ${url}`);
 
-    const result = await getJson<MigrationHistoryItem[]>(url);
+    const result = await getJson<MigrationHistoryItem[]>(url, undefined, serviceKeyHeaders(apiBaseUrl));
 
     if (!result.isSuccess) {
         counters.error += 1;
@@ -183,7 +184,7 @@ export async function runMigrationTracking(request: ReportRequest): Promise<void
     log.addLine('         paketler taranıyor, büyük aralıklarda birkaç dakika sürebilir...');
     log.flushNow();
 
-    const result = await getJson<MigrationPackState[]>(url);
+    const result = await getJson<MigrationPackState[]>(url, undefined, serviceKeyHeaders(apiBaseUrl));
 
     if (!result.isSuccess) {
         counters.error += 1;

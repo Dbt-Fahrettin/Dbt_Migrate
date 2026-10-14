@@ -1,5 +1,6 @@
 import { endpoints } from '../api/endpoints';
 import { getJson } from '../api/http';
+import { serviceKeyHeaders } from '../api/serviceKey';
 import { forEachBounded } from './boundedConcurrency';
 import type { OperationLog } from './operationLog';
 import { resolvePackTargets } from './packTargets';
@@ -76,7 +77,7 @@ export async function runFunctionRenew(request: SyncOperationRequest): Promise<v
 
         const url = endpoints.setTotalFunction(apiBaseUrl, target.packNo, request.functionName.trim());
 
-        const result = await getJson(url, signal);
+        const result = await getJson(url, signal, serviceKeyHeaders(apiBaseUrl));
 
         if (result.isSuccess) {
             counters.success += 1;
@@ -155,7 +156,7 @@ export async function runUpdateSalerId(request: SyncOperationRequest): Promise<v
         log.setOperation(`${operationName} - ${url}`);
         log.setStatus(`${operationName} - Devam ediyor (${target.displayName})`, 'running');
 
-        const result = await getJson(url, signal);
+        const result = await getJson(url, signal, serviceKeyHeaders(apiBaseUrl));
 
         // Başarı alan olarak okunur; WPF gövdede ham metin arıyordu (bkz. isOkResponse).
         if (result.isSuccess && isOkResponse(result.content)) {

@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { buildStamp } from '../../buildInfo';
 import { endpoints } from '../../api/endpoints';
 import { getDbtDatNames, getDbtMigrations, tryReadStringList } from '../../api/masterClient';
+import { isPlausibleServiceKey, loadServiceKey, saveServiceKey } from '../../api/serviceKey';
 import { useAuth } from '../../auth/useAuth';
 import { isBlockedByMixedContent } from '../../config/environments';
 import {
@@ -49,6 +50,10 @@ export function ConsolePage() {
     const [withTaxpayers, setWithTaxpayers] = useState(false);
     const [vknText, setVknText] = useState('');
 
+    // Ortam değişince bu bileşen App'te key={environment.key} ile yeniden kurulur; lazy init
+    // o yüzden her zaman yürürlükteki ortamın anahtarını okur.
+    const [serviceKey, setServiceKey] = useState(() => loadServiceKey(environment.apiBaseUrl));
+
     const [isRunning, setIsRunning] = useState(false);
     const [isHelperBusy, setIsHelperBusy] = useState(false);
     const [formError, setFormError] = useState('');
@@ -58,6 +63,10 @@ export function ConsolePage() {
 
     const selected = OPERATIONS.find((d) => d.kind === kind);
     const isMixedContentBlocked = isBlockedByMixedContent(environment);
+
+    // Portal işlemleri [Authorize] altında (Login.Api belirteci); geri kalan hepsi master/dbtRenewal
+    // uçlarına gider ve servis anahtarı ister.
+    const needsServiceKey = usesPackTargets(kind);
 
     // Hangi alanın hangi işlemde anlamı var. Görünmeyen bir alanın değeri yine gönderilmez;
     // doğrulama da işleme göre çalışır (bkz. validateRequest).
@@ -262,6 +271,37 @@ export function ConsolePage() {
                             </p>
                         )}
                     </Field>
+
+                    {needsServiceKey && (
+                        <Field>
+                            <Label htmlFor="service-key">Servis anahtarı</Label>
+                            <input
+                                id="service-key"
+                                type="password"
+                                autoComplete="off"
+                                value={serviceKey}
+                                disabled={isRunning}
+                                onChange={(e) => {
+                                    setServiceKey(e.target.value);
+                                    saveServiceKey(environment.apiBaseUrl, e.target.value);
+                                }}
+                                placeholder="X-Svc-Key"
+                                className={`${inputClass} font-mono`}
+                            />
+                            {isPlausibleServiceKey(serviceKey) ? (
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    {environment.name} için bu cihazda saklandı. Doğruluğunu yalnız sunucu bilir —
+                                    yanlışsa istekler 404 döner.
+                                </p>
+                            ) : (
+                                <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                                    Bakım uçları 13.10.2026'dan beri servis anahtarı istiyor. Anahtarsız istek{' '}
+                                    <b>404</b> döner, uç yokmuş gibi görünür. Sunucudaki karşılığı{' '}
+                                    <code>ServiceKeys:Admin</code>. Yalnız bu cihazda saklanır; depoya ve APK'ye girmez.
+                                </p>
+                            )}
+                        </Field>
+                    )}
 
                     {usesStart && (
                     <div className={usesRange ? 'grid grid-cols-2 gap-2' : ''}>

@@ -76,6 +76,11 @@ function Show-Status {
 
 switch ($Action) {
     'install' {
+        # Once calisan ornegi indir. Gorevi kaldirmak node cocugunu oldurmez; port 80 elde
+        # kalir ve yeni ornek EADDRINUSE ile cikar, gorev "Ready" gorunurken eski surum
+        # servis etmeye devam eder (14.10.2026 bunu yasadi).
+        & $PSCommandPath -Action stop -TaskName $TaskName -Port $Port -BasePath $BasePath | Out-Null
+
         if (Get-Task) {
             Write-Output "Gorev zaten kurulu; yeniden kuruluyor."
             Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
@@ -93,6 +98,15 @@ switch ($Action) {
         $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments -WorkingDirectory $webRoot
         $taskTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 
+        # IKINCI TETIKLEYICI - KENDI KENDINE TOPARLANMA. 14.10.2026: logon kosusu olmustu
+        # (son sonuc 0xC000013A, port 80 dinlenmiyordu) ve "hatada 3 kez yeniden dene" ayari
+        # kurtarmadi - uc deneme de ilk uc dakikada tukendi, servis gun boyu olu kaldi.
+        # MultipleInstances=IgnoreNew oldugu icin servis ayaktayken bu tetikleyici hicbir sey
+        # yapmaz; yalnizca olmusse yeniden baslatir. (serve-local.mjs port doluysa zaten cikar.)
+        $healTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+            -RepetitionInterval (New-TimeSpan -Minutes 10) `
+            -RepetitionDuration (New-TimeSpan -Days 3650)
+
         # Suresiz kossun, cokerse yeniden denensin, pil/guc durumundan etkilenmesin.
         $taskSettings = New-ScheduledTaskSettingsSet `
             -AllowStartIfOnBatteries `
@@ -102,7 +116,7 @@ switch ($Action) {
             -RestartInterval (New-TimeSpan -Minutes 1) `
             -ExecutionTimeLimit (New-TimeSpan -Seconds 0)
 
-        Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger $taskTrigger -Settings $taskSettings `
+        Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger @($taskTrigger, $healTrigger) -Settings $taskSettings `
             -Description 'Dbt Admin Console - lokal statik sunucu (http://localhost/admin-console)' | Out-Null
 
         Start-ScheduledTask -TaskName $TaskName

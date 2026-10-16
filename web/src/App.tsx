@@ -5,6 +5,7 @@ import { AppHeader } from './components/AppHeader';
 import { ConsolePage } from './features/console/ConsolePage';
 import { GibNightlyPage } from './features/gib/GibNightlyPage';
 import { HomeMenu } from './features/home/HomeMenu';
+import { ServiceVersionsPage } from './features/versions/ServiceVersionsPage';
 import type { AppView } from './navigation';
 
 export default function App() {
@@ -48,6 +49,9 @@ export default function App() {
                 {view === 'migration' && <ConsolePage key={environment.key} />}
 
                 {view === 'gib' && <GibNightlyPage key={environment.key} />}
+
+                {/* Sürüm ekranı seçili ortamdan bağımsız çalışır; key verilmez. */}
+                {view === 'versions' && <ServiceVersionsPage />}
             </main>
         </div>
     );

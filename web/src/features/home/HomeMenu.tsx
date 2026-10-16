@@ -27,7 +27,7 @@ export function HomeMenu({ onSelect }: Props) {
                 gitmek istersiniz?
             </p>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <MenuCard
                     title="Migration İşlemleri"
                     description="Paket veritabanlarında migration çalıştırma, fonksiyon yenileme ve migration geçmişi."
@@ -48,6 +48,15 @@ export function HomeMenu({ onSelect }: Props) {
                     accent="text-emerald-600 dark:text-emerald-400"
                     icon={<InvoiceIcon />}
                     onClick={() => onSelect('gib')}
+                />
+
+                <MenuCard
+                    title="Servis Sürümleri"
+                    description="Test ve Prod'daki servislerin yayındaki sürüm numaraları."
+                    bullets={['Service.Api', 'Gib.Api', 'Login.Api']}
+                    accent="text-violet-600 dark:text-violet-400"
+                    icon={<TagIcon />}
+                    onClick={() => onSelect('versions')}
                 />
             </div>
         </div>
@@ -103,6 +112,23 @@ function DatabaseIcon() {
             <ellipse cx="12" cy="5.5" rx="7.5" ry="3" />
             <path d="M4.5 5.5v13c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-13" />
             <path d="M4.5 12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3" />
+        </svg>
+    );
+}
+
+function TagIcon() {
+    return (
+        <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden
+        >
+            <path d="M3 12.5V4.5h8l9.5 9.5-8 8L3 12.5z" strokeLinejoin="round" />
+            <circle cx="7.75" cy="8.25" r="1.25" />
         </svg>
     );
 }

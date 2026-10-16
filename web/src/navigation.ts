@@ -1,13 +1,14 @@
 /**
  * Uygulamadaki üst düzey ekranlar.
  *
- * Router kullanılmadı: üç ekran var, derin bağlantı ihtiyacı yok ve Capacitor paketinde
+ * Router kullanılmadı: birkaç ekran var, derin bağlantı ihtiyacı yok ve Capacitor paketinde
  * tarayıcı adres çubuğu da yok. Basit bir durum değişkeni yeterli.
  */
-export type AppView = 'menu' | 'migration' | 'gib';
+export type AppView = 'menu' | 'migration' | 'gib' | 'versions';
 
 export const VIEW_TITLES: Record<AppView, string> = {
     menu: 'Dbt Admin Console',
     migration: 'Migration İşlemleri',
     gib: 'GİB API İşlemleri',
+    versions: 'Servis Sürümleri',
 };

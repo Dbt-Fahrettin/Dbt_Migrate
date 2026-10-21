@@ -38,6 +38,12 @@ export const endpoints = {
     dbtMigrateBetweenBg: (api: string, start: string, end: string, migrationName: string) =>
         join(api, `master/dbt-migrate-between-bg/${start}/${end}/${migrationName}`),
 
+    /**
+     * Otomatik DBS gönderiminin sunucu yapılandırması (salt okuma).
+     * Servis anahtarı ister; 21.10.2026 yayınından önceki sürümlerde yok (404).
+     */
+    dbsAutoSendStatus: (api: string) => join(api, 'master/dbs-auto-send-status'),
+
     /** Kuyruğa alınan işlerin toplu durum sorgusu (POST, gövde = jobId listesi). */
     migrateStatusBulk: (api: string) => join(api, 'master/dbt-migrate-status-bulk'),
 

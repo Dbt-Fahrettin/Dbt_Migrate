@@ -5,6 +5,7 @@ import { AppHeader } from './components/AppHeader';
 import { ConsolePage } from './features/console/ConsolePage';
 import { GibNightlyPage } from './features/gib/GibNightlyPage';
 import { HomeMenu } from './features/home/HomeMenu';
+import { DbsAutoSendPage } from './features/dbs/DbsAutoSendPage';
 import { ServiceVersionsPage } from './features/versions/ServiceVersionsPage';
 import type { AppView } from './navigation';
 
@@ -52,6 +53,9 @@ export default function App() {
 
                 {/* Sürüm ekranı seçili ortamdan bağımsız çalışır; key verilmez. */}
                 {view === 'versions' && <ServiceVersionsPage />}
+
+                {/* Seçili ortamın servis anahtarıyla sorgular; ortam değişince sıfırlansın. */}
+                {view === 'dbs' && <DbsAutoSendPage key={environment.key} />}
             </main>
         </div>
     );

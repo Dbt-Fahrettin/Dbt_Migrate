@@ -58,6 +58,15 @@ export function HomeMenu({ onSelect }: Props) {
                     icon={<TagIcon />}
                     onClick={() => onSelect('versions')}
                 />
+
+                <MenuCard
+                    title="DBS Otomatik Gönderim"
+                    description="Sunucu anahtarının durumu: açık mı, hangi paketlerde, işler kayıtlı mı."
+                    bullets={['Durum sorgulama', 'Pilot paketler', 'Hangfire işleri']}
+                    accent="text-amber-600 dark:text-amber-400"
+                    icon={<SendIcon />}
+                    onClick={() => onSelect('dbs')}
+                />
             </div>
         </div>
     );
@@ -112,6 +121,23 @@ function DatabaseIcon() {
             <ellipse cx="12" cy="5.5" rx="7.5" ry="3" />
             <path d="M4.5 5.5v13c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-13" />
             <path d="M4.5 12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3" />
+        </svg>
+    );
+}
+
+function SendIcon() {
+    return (
+        <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden
+        >
+            <path d="M21.5 2.5L10.5 13.5" strokeLinecap="round" />
+            <path d="M21.5 2.5l-7 19-4-8.5-8.5-4 19.5-6.5z" strokeLinejoin="round" />
         </svg>
     );
 }

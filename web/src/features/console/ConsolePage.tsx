@@ -1,7 +1,14 @@
+import { useQuery } from '@tanstack/react-query';
 import { useMemo, useRef, useState } from 'react';
 import { buildStamp } from '../../buildInfo';
 import { endpoints } from '../../api/endpoints';
-import { getDbtDatNames, getDbtMigrations, tryReadStringList } from '../../api/masterClient';
+import {
+    cancelMigrateJobs,
+    getActiveMigrateJobs,
+    getDbtDatNames,
+    getDbtMigrations,
+    tryReadStringList,
+} from '../../api/masterClient';
 import { isPlausibleServiceKey, loadServiceKey, saveServiceKey } from '../../api/serviceKey';
 import { useAuth } from '../../auth/useAuth';
 import { isBlockedByMixedContent } from '../../config/environments';
@@ -22,6 +29,9 @@ import {
     type DbtMigrationGroups,
 } from '../../operations/dbtMigrationNames';
 import { OperationLog } from '../../operations/operationLog';
+import { runQueuedOperation } from '../../operations/queuedOperation';
+import type { ActiveMigrateJob } from '../../operations/types';
+import { describeActiveJob, resumeJobItems } from './activeJobs';
 import { ConfirmDialog } from './ConfirmDialog';
 import { CounterBar } from './CounterBar';
 import { Field, Label, checkboxClass, inputClass, secondaryButtonClass, selectClass } from './formControls';
@@ -60,6 +70,23 @@ export function ConsolePage() {
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
     const abortRef = useRef<AbortController | null>(null);
+
+    /**
+     * Sunucuda süren işler. Ekran açılır açılmaz sorulur — bu ekranın başka hiçbir yerinde
+     * kendiliğinden istek yok, ama burada bilerek var: kullanıcı sürmekte olan bir migration'dan
+     * habersizse aynı işi ikinci kez başlatıyor. Okuma ucu, yan etkisi yok.
+     *
+     * Kendi koşumuz sürerken sorulmaz: o sırada izlemeyi zaten biz yapıyoruz.
+     */
+    const activeQuery = useQuery({
+        queryKey: ['dbt-migrate-active', environment.apiBaseUrl] as const,
+        queryFn: ({ signal }) => getActiveMigrateJobs(environment.apiBaseUrl, signal),
+        enabled: !isRunning,
+        refetchOnWindowFocus: false,
+        staleTime: 15_000,
+    });
+
+    const activeJobs: ActiveMigrateJob[] = activeQuery.data?.jobs ?? [];
 
     const selected = OPERATIONS.find((d) => d.kind === kind);
     const isMixedContentBlocked = isBlockedByMixedContent(environment);
@@ -242,6 +269,67 @@ export function ConsolePage() {
         }
     }
 
+    /** Sunucuda süren işleri devralıp izlemeye başlar; yeni iş kuyruğa alınmaz. */
+    async function resumeActive() {
+        const controller = new AbortController();
+
+        abortRef.current = controller;
+        setIsRunning(true);
+        log.reset();
+
+        try {
+            await runQueuedOperation({
+                apiBaseUrl: environment.apiBaseUrl,
+                log,
+                operationName: 'Süren işler',
+                headerText: `${activeJobs.length} iş devralındı`,
+                targets: [],
+                buildEnqueueUrl: () => '',
+                resumeJobs: resumeJobItems(activeJobs),
+                signal: controller.signal,
+            });
+        } finally {
+            abortRef.current = null;
+            setIsRunning(false);
+
+            void activeQuery.refetch();
+        }
+    }
+
+    /** Kuyrukta bekleyenleri düşürür; koşmakta olan iş yarıda kesilemez. */
+    async function cancelQueued() {
+        const queued = activeJobs.filter((d) => d.state !== 'Processing');
+
+        setIsHelperBusy(true);
+        log.reset();
+        log.setStatus('Kuyruk iptal ediliyor', 'running');
+
+        const result = await cancelMigrateJobs(
+            environment.apiBaseUrl,
+            queued.map((d) => d.jobId),
+        );
+
+        if (result === null) {
+            log.addError('Kuyruk iptal edilemedi - sunucuya ulaşılamadı');
+            log.setStatus('Kuyruk iptal edilemedi', 'failed');
+        } else {
+            log.addLine(`${result.deletedCount} iş kuyruktan düşürüldü`);
+
+            if (result.runningCount > 0) {
+                log.addLine(
+                    `${result.runningCount} iş koşuyordu: Hangfire kaydı silindi ama veritabanındaki migration bitene kadar sürer`,
+                );
+            }
+
+            log.setStatus(`Kuyruk iptal edildi - ${result.deletedCount} iş düştü`, 'succeeded');
+        }
+
+        log.flushNow();
+        setIsHelperBusy(false);
+
+        void activeQuery.refetch();
+    }
+
     function handleStop() {
         abortRef.current?.abort();
     }
@@ -249,6 +337,64 @@ export function ConsolePage() {
     return (
         <div className="safe-bottom safe-x mx-auto flex h-full max-w-6xl flex-col gap-4 pt-4 lg:flex-row">
             <div className="w-full shrink-0 space-y-4 lg:w-80 lg:overflow-y-auto">
+                {!isRunning && activeJobs.length > 0 && (
+                    <section className="rounded-2xl border border-sky-300 bg-sky-50 p-4 dark:border-sky-800 dark:bg-sky-950">
+                        <p className="text-sm font-bold text-sky-900 dark:text-sky-100">
+                            Sunucuda {activeJobs.length} migration işi var
+                        </p>
+                        <p className="mt-0.5 text-xs text-sky-900 dark:text-sky-200">
+                            {activeQuery.data?.processingCount ?? 0} koşuyor,{' '}
+                            {activeQuery.data?.enqueuedCount ?? 0} kuyrukta. Yeni iş başlatmadan önce bunları
+                            kontrol edin — aynı paketi ikinci kez başlatmayın.
+                        </p>
+
+                        <ul className="mt-2 space-y-1">
+                            {activeJobs.slice(0, 6).map((job) => (
+                                <li
+                                    key={job.jobId}
+                                    className="font-mono text-[11px] text-sky-900 dark:text-sky-200"
+                                >
+                                    {describeActiveJob(job)}
+                                </li>
+                            ))}
+                            {activeJobs.length > 6 && (
+                                <li className="font-mono text-[11px] text-sky-700 dark:text-sky-300">
+                                    … ve {activeJobs.length - 6} iş daha
+                                </li>
+                            )}
+                        </ul>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => void resumeActive()}
+                                disabled={isHelperBusy}
+                                className="rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-600 disabled:opacity-50"
+                            >
+                                Takibi devral
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => void cancelQueued()}
+                                disabled={isHelperBusy || (activeQuery.data?.enqueuedCount ?? 0) === 0}
+                                className="rounded-lg border border-sky-700 px-3 py-1.5 text-xs font-semibold text-sky-800 transition hover:bg-sky-100 disabled:opacity-40 dark:text-sky-200 dark:hover:bg-sky-900"
+                            >
+                                Kuyruğu iptal et
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => void activeQuery.refetch()}
+                                disabled={activeQuery.isFetching}
+                                className="rounded-lg px-3 py-1.5 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:opacity-40 dark:text-sky-200 dark:hover:bg-sky-900"
+                            >
+                                {activeQuery.isFetching ? 'Yenileniyor…' : 'Yenile'}
+                            </button>
+                        </div>
+                    </section>
+                )}
+
                 <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                     <Field>
                         <Label>İşlem</Label>

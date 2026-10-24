@@ -1,5 +1,5 @@
 import { getJson } from '../api/http';
-import { getStatusesBulk } from '../api/masterClient';
+import { cancelMigrateJobs, getStatusesBulk } from '../api/masterClient';
 import { serviceKeyHeaders } from '../api/serviceKey';
 import type { OperationLog } from './operationLog';
 import type { EnqueueResult, JobItem, JobStatus, OperationCounters, PackTarget } from './types';
@@ -54,12 +54,23 @@ export interface QueuedOperationOptions {
     headerText: string;
     targets: PackTarget[];
     buildEnqueueUrl: (target: PackTarget) => string;
-    /** Yalnız YENİ İŞ KUYRUĞA ALMAYI durdurur; sunucuda koşan işler iptal edilmez. */
+
+    /**
+     * Verilirse hiç yeni iş kuyruğa alınmaz; bu işler devralınıp izlenir. Konsol kapatılıp
+     * açıldığında sunucuda süren işlerin takibini sürdürmek için.
+     */
+    resumeJobs?: JobItem[];
+
+    /**
+     * Durdurma: yeni iş kuyruğa alınmaz VE kuyrukta bekleyenler sunucudan düşürülür. Koşmakta olan
+     * iş yarıda kesilemez (işte iptal belirteci yok), veritabanında bitene kadar sürer.
+     */
     signal: AbortSignal;
 }
 
 export async function runQueuedOperation(options: QueuedOperationOptions): Promise<void> {
-    const { apiBaseUrl, log, operationName, headerText, targets, buildEnqueueUrl, signal } = options;
+    const { apiBaseUrl, log, operationName, headerText, targets, buildEnqueueUrl, resumeJobs, signal } =
+        options;
 
     const counters: OperationCounters = emptyCounters();
     const pending: JobItem[] = [];
@@ -67,6 +78,7 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
     let isEnqueueDone = false;
     let isMonitorStarted = false;
     let isStopRequested = false;
+    let isCancelSent = false;
 
     log.setCounters(counters);
     log.setStatus(`${operationName} - Başladı`, 'running');
@@ -107,7 +119,7 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
         );
     }
 
-    if (targets.length === 0) {
+    if (targets.length === 0 && !resumeJobs?.length) {
         log.addLine('         işlenecek veritabanı bulunamadı - Start kutusunu kontrol edin (0 = Dbt_Temp)');
         updateOperation(FINISHED_PHASE);
         log.flushNow();
@@ -148,7 +160,12 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
 
         remove(item);
 
-        if (status.isSucceeded && status.skippedCount > 0 && status.okCount === 0) {
+        if (status.state === 'Deleted') {
+            // Durdurulurken kuyruktan düşürüldü: bu bir hata değil, kullanıcının kararı.
+            counters.cancelled += 1;
+
+            log.replaceLine(item.lineIndex, `${item.displayName} --> iptal edildi (kuyruktan düşürüldü)`);
+        } else if (status.isSucceeded && status.skippedCount > 0 && status.okCount === 0) {
             counters.skipped += 1;
 
             log.replaceLine(
@@ -172,13 +189,69 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
         updateOperation(currentPhase());
     }
 
+    /**
+     * Durdurulunca kuyrukta bekleyen işleri sunucudan düşürür.
+     *
+     * Eskiden "Durdur" yalnız yeni iş atmayı kesiyordu; kuyruğa girmiş yüzlerce iş koşmaya devam
+     * ediyor ve kullanıcı bunları durduramıyordu. Koşmakta olan iş hâlâ kesilemiyor (işte iptal
+     * belirteci yok); sayısı ayrıca yazılıyor ki "durdurdum" sanılıp paket yeniden başlatılmasın.
+     */
+    async function cancelPendingJobs(): Promise<void> {
+        if (isCancelSent || pending.length === 0) {
+            return;
+        }
+
+        isCancelSent = true;
+
+        const result = await cancelMigrateJobs(
+            apiBaseUrl,
+            pending.map((d) => d.jobId),
+        );
+
+        if (result === null) {
+            log.addLine('         kuyruk iptal edilemedi - sunucuya ulaşılamadı, işler koşmaya devam ediyor');
+            log.addError(
+                'Kuyruk iptali başarısız - işler sunucuda koşmaya devam ediyor, Hangfire panelinden kontrol edin',
+            );
+
+            return;
+        }
+
+        log.addLine(
+            `         iptal: ${result.deletedCount} iş kuyruktan düşürüldü` +
+                (result.runningCount > 0
+                    ? `, ${result.runningCount} iş koşuyordu ve yarıda kesilemez (veritabanında bitene kadar sürer)`
+                    : ''),
+        );
+    }
+
     // ----- kuyruğa alma döngüsü -----
     async function enqueueAll(): Promise<void> {
+        // Devralmada kuyruğa alınacak bir şey yok: işler zaten sunucuda.
+        if (resumeJobs?.length) {
+            for (const job of resumeJobs) {
+                counters.queued += 1;
+
+                pending.push({
+                    ...job,
+                    lineIndex: log.addLine(`${job.displayName} --> devralındı (jobId: ${job.jobId})`),
+                });
+            }
+
+            isEnqueueDone = true;
+
+            log.addLine(`         ${counters.queued} iş devralındı, durum izleniyor...`);
+
+            return;
+        }
+
         for (const target of targets) {
             if (signal.aborted) {
                 isStopRequested = true;
 
-                log.addLine('         kuyruğa alma durduruldu - kuyrukta olan işler izlenmeye devam ediyor');
+                log.addLine('         kuyruğa alma durduruldu - kuyruktaki işler iptal ediliyor');
+
+                await cancelPendingJobs();
 
                 break;
             }
@@ -239,6 +312,13 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
                 await delay(500);
 
                 continue;
+            }
+
+            // Kuyruğa alma bitmişken durdurulursa iptal buradan tetiklenir.
+            if (signal.aborted) {
+                isStopRequested = true;
+
+                await cancelPendingJobs();
             }
 
             const snapshot = [...pending];

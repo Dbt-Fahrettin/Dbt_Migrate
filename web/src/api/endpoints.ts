@@ -44,6 +44,12 @@ export const endpoints = {
      */
     dbsAutoSendStatus: (api: string) => join(api, 'master/dbs-auto-send-status'),
 
+    /** Sunucuda kuyrukta bekleyen ve koşan migration işleri. */
+    dbtMigrateActive: (api: string) => join(api, 'master/dbt-migrate-active'),
+
+    /** İşleri iptal eder (POST, gövde = jobId listesi). Koşan iş yarıda kesilemez. */
+    dbtMigrateCancel: (api: string) => join(api, 'master/dbt-migrate-cancel'),
+
     /** Kuyruğa alınan işlerin toplu durum sorgusu (POST, gövde = jobId listesi). */
     migrateStatusBulk: (api: string) => join(api, 'master/dbt-migrate-status-bulk'),
 

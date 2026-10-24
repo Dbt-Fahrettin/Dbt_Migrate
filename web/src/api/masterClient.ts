@@ -2,7 +2,7 @@ import { endpoints } from './endpoints';
 import { getJson, postJson } from './http';
 import type { ApiResult } from './http';
 import { serviceKeyHeaders } from './serviceKey';
-import type { JobStatus } from '../operations/types';
+import type { ActiveMigrateJobs, JobStatus, MigrateCancelResult } from '../operations/types';
 
 /**
  * Service.Api'nin master uçlarına giden çağrılar.
@@ -87,4 +87,41 @@ export async function getStatusesBulk(apiBaseUrl: string, jobIds: string[]): Pro
     }
 
     return result.data;
+}
+
+/**
+ * Sunucuda süren migration işleri. Hata durumunda null döner — bu bilgi yardımcı niteliktedir,
+ * okunamaması ekranın açılmasını engellememeli.
+ */
+export async function getActiveMigrateJobs(
+    apiBaseUrl: string,
+    signal?: AbortSignal,
+): Promise<ActiveMigrateJobs | null> {
+    const result = await getJson<ActiveMigrateJobs>(
+        endpoints.dbtMigrateActive(apiBaseUrl),
+        signal,
+        serviceKeyHeaders(apiBaseUrl),
+    );
+
+    return result.isSuccess && result.data ? result.data : null;
+}
+
+/** İşleri iptal eder. Kuyrukta bekleyen düşer; koşan iş veritabanında bitene kadar sürer. */
+export async function cancelMigrateJobs(
+    apiBaseUrl: string,
+    jobIds: string[],
+    signal?: AbortSignal,
+): Promise<MigrateCancelResult | null> {
+    if (jobIds.length === 0) {
+        return { requestedCount: 0, deletedCount: 0, runningCount: 0, items: [] };
+    }
+
+    const result = await postJson<MigrateCancelResult>(
+        endpoints.dbtMigrateCancel(apiBaseUrl),
+        jobIds,
+        signal,
+        serviceKeyHeaders(apiBaseUrl),
+    );
+
+    return result.isSuccess && result.data ? result.data : null;
 }

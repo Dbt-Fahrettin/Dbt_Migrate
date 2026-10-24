@@ -69,6 +69,14 @@ export function CounterBar({ counters, state, statusText, variant }: Props) {
                     <Counter label="Hatalı" value={counters.error} tone="text-red-600 dark:text-red-400" />
                     <Counter label="Atlanan" value={counters.skipped} tone="text-amber-600 dark:text-amber-400" />
                     <Counter label="Bekleyen" value={counters.pending} tone="text-sky-600 dark:text-sky-400" />
+                    {/* İptal yalnız durdurulmuş bir koşuda anlamlı; sıfırken kutuyu kalabalık etmesin. */}
+                    {counters.cancelled > 0 && (
+                        <Counter
+                            label="İptal"
+                            value={counters.cancelled}
+                            tone="text-slate-600 dark:text-slate-300"
+                        />
+                    )}
                 </div>
             )}
         </div>

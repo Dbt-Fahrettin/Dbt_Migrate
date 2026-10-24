@@ -49,12 +49,63 @@ export interface OperationCounters {
     success: number;
     error: number;
     skipped: number;
+    /** Durdurulduğu için kuyruktan düşürülen işler. */
+    cancelled: number;
     pending: number;
 }
 
 export function emptyCounters(): OperationCounters {
-    return { queued: 0, success: 0, error: 0, skipped: 0, pending: 0 };
+    return { queued: 0, success: 0, error: 0, skipped: 0, cancelled: 0, pending: 0 };
 }
 
 /** Durum ışığı: WPF'teki gri/mavi/yeşil/turuncu karşılıkları. */
 export type OperationState = 'ready' | 'running' | 'succeeded' | 'failed';
+
+/**
+ * Sunucuda süren bir migration işi.
+ *
+ * Kuyruk sunucuda tutuluyor: konsol kapatılıp açıldığında başlatılan işin akıbeti ancak buradan
+ * öğrenilir. Bilinmediğinde aynı migration ikinci kez başlatılabiliyordu.
+ */
+export interface ActiveMigrateJob {
+    jobId: string;
+    /** Enqueued | Processing. */
+    state: string;
+    operation: string;
+    packNoStarting: number;
+    packNoEnding: number;
+    migrationId: string;
+    createdAtUtc: string | null;
+    startedAtUtc: string | null;
+    serverId: string | null;
+    okCount: number;
+    failCount: number;
+    skippedCount: number;
+    /** İşin en son dokunduğu paket — "ne aşamada" sorusunun cevabı. */
+    lastPackNo: string | null;
+    elapsed: string | null;
+    message: string | null;
+}
+
+export interface ActiveMigrateJobs {
+    queueName: string;
+    enqueuedCount: number;
+    processingCount: number;
+    jobs: ActiveMigrateJob[];
+}
+
+export interface MigrateCancelItem {
+    jobId: string;
+    state: string;
+    isDeleted: boolean;
+    note: string;
+}
+
+export interface MigrateCancelResult {
+    requestedCount: number;
+    /** Kuyruktan gerçekten düşürülen, hiç koşmayacak işler. */
+    deletedCount: number;
+    /** Koşmakta olduğu için yarıda kesilemeyen işler. */
+    runningCount: number;
+    items: MigrateCancelItem[];
+}

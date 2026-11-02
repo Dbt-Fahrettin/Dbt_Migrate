@@ -3,9 +3,13 @@ import { OperationLog } from './operationLog';
 import {
     formatDuration,
     formatHistoryLine,
+    formatPackRanges,
     formatPackStateLine,
+    getTrackingRange,
     runMigrationHistory,
     runMigrationTracking,
+    runRangeTracking,
+    trackingPrefixes,
     type MigrationHistoryItem,
     type MigrationPackState,
 } from './migrationReports';
@@ -218,5 +222,146 @@ describe('runMigrationTracking', () => {
         });
 
         expect(log.getSnapshot().lines.join('\n')).toContain('hepsi uygulanmış');
+    });
+});
+
+describe('getTrackingRange / trackingPrefixes / formatPackRanges', () => {
+    it('yalnız 6 haneli Start ve End ≥ Start aralık sayılır', () => {
+        expect(getTrackingRange('500000', '504945')).toEqual({ start: 500000, end: 504945 });
+        expect(getTrackingRange('5', '')).toBeNull();
+        expect(getTrackingRange('0', '500000')).toBeNull();
+        expect(getTrackingRange('500100', '500000')).toBeNull();
+        expect(getTrackingRange('500000', undefined)).toBeNull();
+    });
+
+    it('aralığı yüzlük blok öneklerine böler', () => {
+        expect(trackingPrefixes(500000, 500250)).toEqual([5000, 5001, 5002]);
+        expect(trackingPrefixes(500050, 500050)).toEqual([5000]);
+    });
+
+    it('ardışık paketleri aralık olarak, Temp paketini ad olarak yazar', () => {
+        expect(formatPackRanges(['500004', '500000', '500001', '500002', 'Temp'])).toBe('Dbt_Temp, 500000-500002, 500004');
+    });
+});
+
+describe('runRangeTracking', () => {
+    const base = {
+        apiBaseUrl: API,
+        operationName: '8-Migration Takip',
+        startText: '500050',
+        endText: '500150',
+        dbtMigrationName: 'ModelIndexes',
+        onlyMissing: false,
+        start: 500050,
+        end: 500150,
+        appendOnly: false,
+    };
+
+    function stubChunks(): string[] {
+        const requested: string[] = [];
+
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string) => {
+                requested.push(url);
+
+                const failing = 'IX_bank_match_rules_company_id: 42P01: relation does not exist';
+                const body = url.includes('/5000/')
+                    ? [
+                          packState({ packNo: '500010' }), // aralık dışı: atılır
+                          packState({ packNo: '500050', isOk: false, message: failing }),
+                          packState({ packNo: '500051', isOk: false, message: failing }),
+                          packState({ packNo: '500052' }),
+                      ]
+                    : [
+                          packState({ packNo: '500100', isOk: false, message: failing }),
+                          packState({ packNo: '500151' }), // aralık dışı: atılır
+                      ];
+
+                return new Response(JSON.stringify(body), { status: 200 });
+            }),
+        );
+
+        return requested;
+    }
+
+    it('blokları sırayla okur, aralık dışını atar, aynı hatayı tek satırda gruplar', async () => {
+        const requested = stubChunks();
+        const log = new OperationLog();
+
+        await runRangeTracking({ ...base, log });
+
+        const snapshot = log.getSnapshot();
+        const joined = snapshot.lines.join('\n');
+
+        expect(requested).toHaveLength(2);
+        expect(requested[0]).toContain('master/dbt-migration-packs/5000/ModelIndexes?onlyMissing=false');
+        expect(requested[1]).toContain('master/dbt-migration-packs/5001/ModelIndexes?onlyMissing=false');
+        expect(joined).toContain('Toplam paket        : 4');
+        expect(joined).toContain('Tamam (son koşu OK) : 1');
+        expect(joined).toContain('Hatalı bitti        : 3');
+        expect(joined).toContain('Tamam paketler: 500052');
+        expect(snapshot.errors[0]).toBe('HATALI - 3 paket: 500050-500051, 500100');
+        expect(snapshot.errors[1]).toContain('IX_bank_match_rules_company_id');
+        expect(snapshot.counters.success).toBe(1);
+        expect(snapshot.counters.error).toBe(3);
+        expect(snapshot.state).toBe('failed');
+    });
+
+    it('appendOnly iken işin sayaç ve durumuna dokunmaz', async () => {
+        stubChunks();
+        const log = new OperationLog();
+
+        log.setStatus('1-Dbt-Migrate - Tamamlandı', 'succeeded');
+        log.setOperation('iş satırı');
+
+        await runRangeTracking({ ...base, log, appendOnly: true });
+
+        const snapshot = log.getSnapshot();
+
+        expect(snapshot.state).toBe('succeeded');
+        expect(snapshot.statusText).toBe('1-Dbt-Migrate - Tamamlandı');
+        expect(snapshot.operation).toBe('iş satırı');
+        expect(snapshot.counters.queued).toBe(0);
+        expect(snapshot.errors.length).toBeGreaterThan(0);
+    });
+
+    it('okunamayan bloğu hata olarak yazar ve diğer blokla devam eder', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string) =>
+                url.includes('/5000/')
+                    ? new Response('boom', { status: 500 })
+                    : new Response(JSON.stringify([packState({ packNo: '500100' })]), { status: 200 }),
+            ),
+        );
+
+        const log = new OperationLog();
+
+        await runRangeTracking({ ...base, log });
+
+        const snapshot = log.getSnapshot();
+
+        expect(snapshot.errors[0]).toContain('5000* okunamadı');
+        expect(snapshot.counters.success).toBe(1);
+        expect(snapshot.state).toBe('failed');
+    });
+
+    it('runMigrationTracking End doluysa aralık taramasına geçer', async () => {
+        const requested = stubChunks();
+        const log = new OperationLog();
+
+        await runMigrationTracking({
+            apiBaseUrl: API,
+            log,
+            operationName: '8-Migration Takip',
+            startText: '500050',
+            endText: '500150',
+            dbtMigrationName: 'ModelIndexes',
+            onlyMissing: false,
+        });
+
+        expect(requested).toHaveLength(2);
+        expect(log.getSnapshot().lines.join('\n')).toContain('Takip tamamlandı - ModelIndexes');
     });
 });

@@ -1,5 +1,5 @@
 import { endpoints } from '../api/endpoints';
-import { runMigrationHistory, runMigrationTracking } from './migrationReports';
+import { runMigrationHistory, runMigrationTracking, runRangeTracking } from './migrationReports';
 import { runPortalDocCounts, runPortalEBookUsage } from './portalReports';
 import {
     invalidVkns,
@@ -13,6 +13,7 @@ import type { OperationLog } from './operationLog';
 import { getRangeTarget, resolvePackTargets } from './packTargets';
 import { runQueuedOperation } from './queuedOperation';
 import { runFunctionRenew, runUpdateSalerId } from './syncOperations';
+import type { PackTarget } from './types';
 
 /**
  * Ekrandaki "İşlem" listesi. Numaralar WPF sürümündeki etiketlerle aynı tutuldu ki alışkanlık
@@ -313,6 +314,8 @@ export async function runDbtMigrate(request: OperationRequest): Promise<void> {
             signal,
         });
 
+        await trackAfterRun(request, targets);
+
         return;
     }
 
@@ -324,6 +327,45 @@ export async function runDbtMigrate(request: OperationRequest): Promise<void> {
         targets,
         buildEnqueueUrl: (target) => endpoints.dbtMigrateAllBg(apiBaseUrl, target.packNo, migrationName),
         signal,
+    });
+
+    await trackAfterRun(request, targets);
+}
+
+/**
+ * Dbt migration kuyruğu bittikten sonra, işin kendi sayaçlarını bozmadan, koşan aralığın her paketindeki
+ * gerçek sonucu paketlerin kayıtlarından okuyup altına yazar. İş sonucu tek başına yetmiyordu: aralık
+ * işi "Succeeded" bitip içinde binlerce hatalı paket olabiliyor ve iş yalnız ilk 50 hata satırını tutuyor.
+ * Durdurulmuşsa ya da hedef yoksa (Dbt_Temp tek başına) atlanır.
+ */
+async function trackAfterRun(request: OperationRequest, targets: PackTarget[]): Promise<void> {
+    if (request.signal.aborted) {
+        return;
+    }
+
+    const packNos = targets
+        .map((target) => Number.parseInt(target.packNo, 10))
+        .filter((packNo) => Number.isInteger(packNo) && packNo >= 100000);
+
+    if (packNos.length === 0) {
+        return;
+    }
+
+    request.log.addLine('');
+    request.log.addLine('Sonuç takibi: paketlerin kendi kayıtları okunuyor...');
+
+    await runRangeTracking({
+        apiBaseUrl: request.apiBaseUrl,
+        log: request.log,
+        operationName: request.operationName,
+        startText: String(Math.min(...packNos)),
+        endText: String(Math.max(...packNos)),
+        dbtMigrationName: request.dbtMigrationName,
+        onlyMissing: false,
+        signal: request.signal,
+        start: Math.min(...packNos),
+        end: Math.max(...packNos),
+        appendOnly: true,
     });
 }
 

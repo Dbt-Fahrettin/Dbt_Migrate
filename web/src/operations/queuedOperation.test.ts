@@ -304,7 +304,7 @@ describe('resolvePackTargets', () => {
     it('Start = 0 ise tek hedef Dbt_Temp olur', async () => {
         const targets = await resolvePackTargets(API, '0', '', null);
 
-        expect(targets).toEqual([{ packNo: '0', packNoEnding: '', displayName: 'Dbt_Temp' }]);
+        expect(targets).toEqual([{ packNo: '0', packNoEnding: '', displayName: 'Dbt_Temp', dbCount: 1 }]);
     });
 
     it('Start sayı değilse boş liste döner', async () => {
@@ -361,7 +361,16 @@ describe('getRangeTarget', () => {
     it('ilk ve son paketten tek aralık hedefi üretir', () => {
         const range = getRangeTarget([target('500003'), target('500001'), target('500002')], true);
 
-        expect(range).toMatchObject({ packNo: '500001', packNoEnding: '500003' });
+        expect(range).toMatchObject({ packNo: '500001', packNoEnding: '500003', dbCount: 3 });
         expect(range?.displayName).toContain('3 db');
+    });
+
+    it('dbCount veritabanı sayısıdır, numara aralığının genişliği değil', () => {
+        // 500000-504997 arasında yalnız dört veritabanı var: ilerleme oranı buna göre hesaplanmalı.
+        const packs = ['500000', '500001', '504996', '504997'].map(target);
+
+        const range = getRangeTarget(packs, true);
+
+        expect(range).toMatchObject({ packNo: '500000', packNoEnding: '504997', dbCount: 4 });
     });
 });

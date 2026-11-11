@@ -28,7 +28,7 @@ export async function resolvePackTargets(
     }
 
     if (start === 0) {
-        targets.push({ packNo: '0', packNoEnding: '', displayName: 'Dbt_Temp' });
+        targets.push({ packNo: '0', packNoEnding: '', displayName: 'Dbt_Temp', dbCount: 1 });
 
         return targets;
     }
@@ -41,7 +41,7 @@ export async function resolvePackTargets(
                 continue;
             }
 
-            targets.push({ packNo: String(i), packNoEnding: '', displayName: `Dbt_${i}` });
+            targets.push({ packNo: String(i), packNoEnding: '', displayName: `Dbt_${i}`, dbCount: 1 });
         }
 
         return targets;
@@ -57,7 +57,7 @@ export async function resolvePackTargets(
         const packNo = datName.replace('Dbt_', '');
 
         if (packNo.length === 6 && /^\d{6}$/.test(packNo)) {
-            targets.push({ packNo, packNoEnding: '', displayName: datName });
+            targets.push({ packNo, packNoEnding: '', displayName: datName, dbCount: 1 });
         }
     }
 
@@ -66,8 +66,13 @@ export async function resolvePackTargets(
 
 /**
  * Aralık modu işaretliyse hedef listesinden tek bir aralık hedefi üretir (ilk ve son paket no).
+ *
  * Mod kapalıysa, hedef tek ise (ör. Dbt_Temp) ya da paket numarası çözülemiyorsa null döner —
  * o durumda paket başına iş açan normal akış kullanılır.
+ *
+ * `dbCount` aralıktaki veritabanı sayısıdır: ilerleme panelindeki "kaç tane kaldı" ve tahmini
+ * süre buna dayanır. Aralık içinde aynı anda kaç veritabanı işleneceği ayrı bir ayardır
+ * (bkz. OperationRequest.rangeParallel) ve iş sayısını değiştirmez — tek iş kalır, kuyruk şişmez.
  */
 export function getRangeTarget(targets: PackTarget[], isBetweenMode: boolean): PackTarget | null {
     if (!isBetweenMode || targets.length < 2) {
@@ -89,6 +94,7 @@ export function getRangeTarget(targets: PackTarget[], isBetweenMode: boolean): P
     return {
         packNo: String(first),
         packNoEnding: String(last),
-        displayName: `Dbt_${first} - Dbt_${last} (aralık, ${targets.length} db)`,
+        displayName: `Dbt_${first} - Dbt_${last} (aralık, ${packNos.length} db)`,
+        dbCount: packNos.length,
     };
 }

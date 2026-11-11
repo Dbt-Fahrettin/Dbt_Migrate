@@ -1,4 +1,4 @@
-import type { OperationCounters, OperationState } from './types';
+import type { JobProgress, OperationCounters, OperationState } from './types';
 import { emptyCounters } from './types';
 
 /**
@@ -18,6 +18,12 @@ export interface LogSnapshot {
     statusText: string;
     state: OperationState;
     counters: OperationCounters;
+
+    /**
+     * Süren işlerin ilerlemesi. Günlük satırı sanal listede kesildiği için (sabit satır yüksekliği)
+     * sunucunun ilerleme metni görünmüyordu; panel bunu ayrıca gösteriyor.
+     */
+    jobs: JobProgress[];
 }
 
 const FLUSH_INTERVAL_MS = 200;
@@ -29,6 +35,7 @@ export class OperationLog {
     private statusText = '';
     private state: OperationState = 'ready';
     private counters: OperationCounters = emptyCounters();
+    private jobs: JobProgress[] = [];
 
     private version = 0;
     private snapshot: LogSnapshot = this.build();
@@ -82,6 +89,12 @@ export class OperationLog {
         this.schedule();
     }
 
+    /** Süren işlerin ilerlemesi; biten iş listeden düşer. */
+    setJobs(jobs: JobProgress[]): void {
+        this.jobs = jobs;
+        this.schedule();
+    }
+
     setStatus(text: string, state: OperationState): void {
         this.statusText = text;
         this.state = state;
@@ -95,6 +108,7 @@ export class OperationLog {
         this.statusText = '';
         this.state = 'ready';
         this.counters = emptyCounters();
+        this.jobs = [];
 
         this.flush();
     }
@@ -137,6 +151,7 @@ export class OperationLog {
             // Kopyalanıyor: React'in gördüğü dizi, akış sürerken mutasyona uğramasın.
             lines: [...this.lines],
             errors: [...this.errors],
+            jobs: [...this.jobs],
             operation: this.operation,
             statusText: this.statusText,
             state: this.state,

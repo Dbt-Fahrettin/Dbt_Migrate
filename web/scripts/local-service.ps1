@@ -156,6 +156,18 @@ switch ($Action) {
             }
         }
 
+        # Port sorgusu her zaman yetmiyor: 11.11.2026'da serve-local.mjs sureci ayaktayken
+        # Get-NetTCPConnection bos dondu, stop hicbir sey oldurmedi ve sonraki start EADDRINUSE
+        # ile dustu - gorev "Ready" gorunurken port kapali kaldi. Bu yuzden komut satiri bizim
+        # script'imizi gosteren node sureclerini de dusuruyoruz. Olcut tam yol oldugu icin
+        # baska node sureclerine (dev sunucusu, baska araclar) dokunulmaz.
+        $own = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -like "*$serveScript*" }
+
+        foreach ($proc in $own) {
+            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+
         Write-Output "Durduruldu."
     }
 

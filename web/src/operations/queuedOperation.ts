@@ -2,7 +2,7 @@ import { getJson } from '../api/http';
 import { cancelMigrateJobs, getStatusesBulk } from '../api/masterClient';
 import { serviceKeyHeaders } from '../api/serviceKey';
 import type { OperationLog } from './operationLog';
-import type { EnqueueResult, JobItem, JobStatus, OperationCounters, PackTarget } from './types';
+import type { EnqueueResult, JobItem, JobProgress, JobStatus, OperationCounters, PackTarget } from './types';
 import { emptyCounters } from './types';
 
 /**
@@ -80,6 +80,29 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
     let isStopRequested = false;
     let isCancelSent = false;
 
+    /**
+     * İş başına ilerleme. Süre istemcide ölçülüyor: iş ilk kez "Processing" görüldüğünde başlar.
+     * Sunucunun Elapsed değeri toplu durum yanıtında dönmüyor; kuyrukta bekleme süresini de
+     * tahmine katmamak için zaten istemcide ölçmek doğrusu.
+     */
+    const progressById = new Map<string, JobProgress>();
+    const startedAtById = new Map<string, number>();
+
+    /** Paneli tazeler: koşanlar önce, sonra kuyrukta bekleyenler. */
+    function publishProgress(): void {
+        const rows = [...progressById.values()];
+
+        rows.sort((a, b) => {
+            if (a.state === b.state) {
+                return a.displayName.localeCompare(b.displayName, 'tr');
+            }
+
+            return a.state === 'Processing' ? -1 : 1;
+        });
+
+        log.setJobs(rows);
+    }
+
     log.setCounters(counters);
     log.setStatus(`${operationName} - Başladı`, 'running');
 
@@ -140,6 +163,9 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
         if (!status.isFound) {
             // Hangfire kaydı bulunamadı (silinmiş/temizlenmiş) — işin akıbeti bilinmiyor.
             remove(item);
+            progressById.delete(item.jobId);
+            startedAtById.delete(item.jobId);
+            publishProgress();
             counters.error += 1;
 
             log.replaceLine(item.lineIndex, `${item.displayName} --> durum bulunamadı (jobId: ${item.jobId})`);
@@ -153,10 +179,35 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
         }
 
         if (!status.isFinished) {
+            if (status.state === 'Processing' && !startedAtById.has(item.jobId)) {
+                startedAtById.set(item.jobId, Date.now());
+            }
+
+            const startedAt = startedAtById.get(item.jobId);
+
+            progressById.set(item.jobId, {
+                jobId: item.jobId,
+                displayName: item.displayName,
+                state: status.state ?? '',
+                total: item.total ?? 0,
+                okCount: status.okCount ?? 0,
+                failCount: status.failCount ?? 0,
+                skippedCount: status.skippedCount ?? 0,
+                message: status.message ?? '',
+                elapsedMs: startedAt ? Date.now() - startedAt : 0,
+            });
+
+            publishProgress();
+
             log.replaceLine(item.lineIndex, `${item.displayName} --> ${status.state} | ${status.message ?? ''}`);
 
             return;
         }
+
+        // Bitti: panelden düşsün.
+        progressById.delete(item.jobId);
+        startedAtById.delete(item.jobId);
+        publishProgress();
 
         remove(item);
 
@@ -281,6 +332,7 @@ export async function runQueuedOperation(options: QueuedOperationOptions): Promi
                     displayName: target.displayName,
                     jobId,
                     lineIndex,
+                    total: target.dbCount,
                 });
             } else {
                 counters.error += 1;

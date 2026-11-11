@@ -8,6 +8,13 @@ export interface PackTarget {
 
     /** Listede gösterilecek ad ("Dbt_500104" / "Dbt_Temp"). */
     displayName: string;
+
+    /**
+     * Bu hedefin kapsadığı veritabanı sayısı. Paket başına işte 1, aralık işinde aralıktaki
+     * veritabanı sayısı. İlerleme panelindeki "kaç tane kaldı" ve tahmini süre buna dayanıyor;
+     * bilinmiyorsa 0 kalır ve panel oran göstermez (uydurma yüzde göstermekten iyidir).
+     */
+    dbCount?: number;
 }
 
 /** master/dbt-migrate-all-bg (ve migrate-bg) yanıtı. */
@@ -40,8 +47,38 @@ export interface JobItem {
     packNo: string;
     displayName: string;
     jobId: string;
+
+    /** Hedefin kapsadığı veritabanı sayısı (bkz. PackTarget.dbCount). */
+    total?: number;
     /** Sonuç listesindeki satır indeksi — iş bitince o satır yerinde güncellenir. */
     lineIndex: number;
+}
+
+/**
+ * Süren bir işin ekranda gösterilen ilerlemesi.
+ *
+ * Günlük satırı sanal listede kesildiği için (sabit satır yüksekliği) sunucunun yazdığı ilerleme
+ * metni görünmüyordu; bu yapı onu ayrı bir panelde tam olarak göstermek için var.
+ */
+export interface JobProgress {
+    jobId: string;
+    displayName: string;
+
+    /** Hangfire durumu: Enqueued | Processing | … */
+    state: string;
+
+    /** Kapsanan veritabanı sayısı; bilinmiyorsa 0. */
+    total: number;
+
+    okCount: number;
+    failCount: number;
+    skippedCount: number;
+
+    /** Sunucunun kendi ilerleme metni — kesilmeden gösterilir ("son: 500123 -> OK"). */
+    message: string;
+
+    /** İstemcide ölçülen süre: iş ilk kez Processing görüldüğünde başlar. */
+    elapsedMs: number;
 }
 
 export interface OperationCounters {

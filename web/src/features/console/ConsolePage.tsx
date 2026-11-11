@@ -34,6 +34,7 @@ import type { ActiveMigrateJob } from '../../operations/types';
 import { describeActiveJob, resumeJobItems } from './activeJobs';
 import { ConfirmDialog } from './ConfirmDialog';
 import { CounterBar } from './CounterBar';
+import { JobProgressPanel } from './JobProgressPanel';
 import { Field, Label, checkboxClass, inputClass, secondaryButtonClass, selectClass } from './formControls';
 import { LogPane } from './LogPane';
 import { useOperationLog } from './useOperationLog';
@@ -48,6 +49,12 @@ export function ConsolePage() {
     const [startText, setStartText] = useState('');
     const [endText, setEndText] = useState('');
     const [isBetweenMode, setIsBetweenMode] = useState(false);
+
+    /**
+     * Aralık içinde aynı anda kaç veritabanı işlenecek. Metin olarak tutuluyor: alan boşaltılabilsin,
+     * yazarken "1" zorla geri yazılmasın. Sayıya çevirme tek yerde, isteği kurarken.
+     */
+    const [rangeParallelText, setRangeParallelText] = useState('1');
 
     const [datNames, setDatNames] = useState<string[] | null>(null);
     const [dbtMigrations, setDbtMigrations] = useState<DbtMigrationGroups | null>(null);
@@ -218,6 +225,7 @@ export function ConsolePage() {
             endText: usesRange ? endText : '',
             datNames,
             isBetweenMode: usesBetweenMode && isBetweenMode,
+            rangeParallel: Number.parseInt(rangeParallelText, 10) || 1,
             dbtMigrationName,
             functionName,
             docStartDate,
@@ -510,11 +518,30 @@ export function ConsolePage() {
                             <span>
                                 Aralık modu
                                 <span className="block text-xs text-slate-500 dark:text-slate-400">
-                                    Paket başına iş yerine tüm aralık için tek sıralı iş. Ağır migration'larda
-                                    kullanın.
+                                    Paket başına iş yerine aralık için sıralı iş. Ağır migration'larda kullanın.
                                 </span>
                             </span>
                         </label>
+                    )}
+
+                    {/* Eşzamanlılık yalnız 0-Migrate'te: Dbt migration aralığı sunucuda hâlâ sırayla yürüyor. */}
+                    {kind === OPERATION_KINDS.migrate && isBetweenMode && (
+                        <Field>
+                            <Label htmlFor="range-parallel">Eşzamanlı db</Label>
+                            <input
+                                id="range-parallel"
+                                inputMode="numeric"
+                                value={rangeParallelText}
+                                disabled={isRunning}
+                                onChange={(e) => setRangeParallelText(e.target.value)}
+                                placeholder="1"
+                                className={`${inputClass} font-mono`}
+                            />
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                Aynı anda kaç veritabanı işlensin; biten bittikçe sıradaki alınır. Kuyruğa yine
+                                tek iş girer. Varsayılan 1 (sırayla), en çok 5.
+                            </p>
+                        </Field>
                     )}
 
                     {usesMigrationName && (
@@ -731,6 +758,8 @@ export function ConsolePage() {
                         variant={selected?.isReadOnly ? 'report' : 'queue'}
                     />
                 </section>
+
+                <JobProgressPanel jobs={snapshot.jobs} />
 
                 <p className="pb-2 text-center font-mono text-[11px] text-slate-400 dark:text-slate-600">
                     {buildStamp()}

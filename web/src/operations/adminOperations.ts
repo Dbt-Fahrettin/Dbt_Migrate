@@ -155,6 +155,15 @@ export interface OperationRequest {
     datNames: string[] | null;
     /** Ağır işler için aralık modu: paket başına iş yerine tek sıralı iş. */
     isBetweenMode: boolean;
+
+    /**
+     * Aralık modunda aynı anda işlenecek veritabanı sayısı (varsayılan 1 = sırayla, eski davranış).
+     *
+     * İş sayısını DEĞİŞTİRMEZ: kuyruğa yine tek iş girer, iş kendi içinde bu kadar veritabanını
+     * aynı anda işler ve biten bittikçe sıradakini alır. Paket başına iş açmanın kuyruğu doldurması
+     * ile tek tek yürümenin yavaşlığı arasındaki orta yol. Yalnız 0-Migrate'te geçerli.
+     */
+    rangeParallel?: number;
     /** Dbt-Migrate ve Migration Takip işlemlerinde kullanılacak migration adı. */
     dbtMigrationName: string;
     /** Function Renew işleminde yenilenecek fonksiyon adı (serbest metin). */
@@ -248,11 +257,19 @@ export async function runMigrate(request: OperationRequest): Promise<void> {
         signal,
     );
 
-    // Aralık modu: paket başına iş açmak yerine tüm aralık için tek sıralı iş.
+    // Aralık modu: paket başına iş açmak yerine tüm aralık için tek iş. İş içinde aynı anda
+    // kaç veritabanı işleneceği "rangeParallel" ile sunucuya bildirilir.
     const rangeTarget = getRangeTarget(targets, request.isBetweenMode);
 
     if (rangeTarget) {
-        const rangeUrl = endpoints.migrateBetweenBg(apiBaseUrl, rangeTarget.packNo, rangeTarget.packNoEnding);
+        const parallel = request.rangeParallel ?? 1;
+
+        const rangeUrl = endpoints.migrateBetweenBg(
+            apiBaseUrl,
+            rangeTarget.packNo,
+            rangeTarget.packNoEnding,
+            parallel,
+        );
 
         await runQueuedOperation({
             apiBaseUrl,
@@ -294,6 +311,8 @@ export async function runDbtMigrate(request: OperationRequest): Promise<void> {
         signal,
     );
 
+    // Dbt migration aralığında eşzamanlılık yok: sunucudaki DbtMigrateBetweenAsync hâlâ sırayla
+    // yürüyor. Ekranda da bu işlemde alan gösterilmiyor.
     const rangeTarget = getRangeTarget(targets, request.isBetweenMode);
 
     if (rangeTarget) {

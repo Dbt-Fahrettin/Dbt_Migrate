@@ -28,8 +28,15 @@ export const endpoints = {
     /** 0-Migrate — EF migration, paket başına kuyruk. */
     migrateBg: (api: string, packNo: string) => join(api, `master/migrate-bg/${packNo}`),
 
-    migrateBetweenBg: (api: string, start: string, end: string) =>
-        join(api, `master/migrate-between-bg/${start}/${end}`),
+    /**
+     * Aralığı tek iş olarak kuyruğa alır. `parallel` > 1 ise iş aynı anda o kadar veritabanı işler
+     * (kuyruk şişmeden orta yoğunluk). Sorgu dizesi: parametresiz adres eski sunucularda da çalışır.
+     */
+    migrateBetweenBg: (api: string, start: string, end: string, parallel = 1) => {
+        const url = join(api, `master/migrate-between-bg/${start}/${end}`);
+
+        return parallel > 1 ? `${url}?parallel=${parallel}` : url;
+    },
 
     /** 1-Dbt-Migrate — seçili Dbt migration, paket başına kuyruk. */
     dbtMigrateAllBg: (api: string, packNo: string, migrationName: string) =>

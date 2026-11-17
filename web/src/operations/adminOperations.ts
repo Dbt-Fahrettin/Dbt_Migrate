@@ -161,9 +161,17 @@ export interface OperationRequest {
      *
      * İş sayısını DEĞİŞTİRMEZ: kuyruğa yine tek iş girer, iş kendi içinde bu kadar veritabanını
      * aynı anda işler ve biten bittikçe sıradakini alır. Paket başına iş açmanın kuyruğu doldurması
-     * ile tek tek yürümenin yavaşlığı arasındaki orta yol. Yalnız 0-Migrate'te geçerli.
+     * ile tek tek yürümenin yavaşlığı arasındaki orta yol. 0-Migrate ve 1-Dbt-Migrate'te geçerli.
      */
     rangeParallel?: number;
+
+    /**
+     * Aralık modunda paketleri kullanım puanına göre sırala: sık ve sabah erken kullanılan paketler
+     * önce işlenir, girişi olmayanlar numara sırasıyla sona kalır. Eşzamanlılıkla birlikte "önce
+     * öncelikli paketler bitsin, sonra diğerleri" davranışını verir. Sunucu sıralamayı okuyamazsa
+     * numara sırasına düşer, iş durmaz.
+     */
+    rangeOrderByUsage?: boolean;
     /** Dbt-Migrate ve Migration Takip işlemlerinde kullanılacak migration adı. */
     dbtMigrationName: string;
     /** Function Renew işleminde yenilenecek fonksiyon adı (serbest metin). */
@@ -262,13 +270,12 @@ export async function runMigrate(request: OperationRequest): Promise<void> {
     const rangeTarget = getRangeTarget(targets, request.isBetweenMode);
 
     if (rangeTarget) {
-        const parallel = request.rangeParallel ?? 1;
-
         const rangeUrl = endpoints.migrateBetweenBg(
             apiBaseUrl,
             rangeTarget.packNo,
             rangeTarget.packNoEnding,
-            parallel,
+            request.rangeParallel ?? 1,
+            request.rangeOrderByUsage ?? false,
         );
 
         await runQueuedOperation({
@@ -311,8 +318,6 @@ export async function runDbtMigrate(request: OperationRequest): Promise<void> {
         signal,
     );
 
-    // Dbt migration aralığında eşzamanlılık yok: sunucudaki DbtMigrateBetweenAsync hâlâ sırayla
-    // yürüyor. Ekranda da bu işlemde alan gösterilmiyor.
     const rangeTarget = getRangeTarget(targets, request.isBetweenMode);
 
     if (rangeTarget) {
@@ -321,6 +326,8 @@ export async function runDbtMigrate(request: OperationRequest): Promise<void> {
             rangeTarget.packNo,
             rangeTarget.packNoEnding,
             migrationName,
+            request.rangeParallel ?? 1,
+            request.rangeOrderByUsage ?? false,
         );
 
         await runQueuedOperation({

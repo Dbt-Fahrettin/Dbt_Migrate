@@ -9,6 +9,24 @@ function join(apiBaseUrl: string, path: string): string {
     return `${apiBaseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
+/**
+ * Aralık işlemlerinin sorgu dizesi. Varsayılanlar (1 eşzamanlı, numara sırası) dizeye yazılmaz:
+ * eski sunucular parametreyi tanımaz, parametresiz adres onlarda da aynı işi yapar.
+ */
+function withRangeOptions(url: string, parallel: number, orderByUsage: boolean): string {
+    const parts: string[] = [];
+
+    if (parallel > 1) {
+        parts.push(`parallel=${parallel}`);
+    }
+
+    if (orderByUsage) {
+        parts.push('order=usage');
+    }
+
+    return parts.length > 0 ? `${url}?${parts.join('&')}` : url;
+}
+
 export const endpoints = {
     /** Servisin ayakta olup olmadığı. */
     test: (api: string) => join(api, 'test'),
@@ -30,20 +48,36 @@ export const endpoints = {
 
     /**
      * Aralığı tek iş olarak kuyruğa alır. `parallel` > 1 ise iş aynı anda o kadar veritabanı işler
-     * (kuyruk şişmeden orta yoğunluk). Sorgu dizesi: parametresiz adres eski sunucularda da çalışır.
+     * (kuyruk şişmeden orta yoğunluk); `orderByUsage` ise paketler kullanım puanına göre sıralanır
+     * (sık ve sabah erken kullanılanlar önce). Sorgu dizesi: parametresiz adres eski sunucularda da çalışır.
      */
-    migrateBetweenBg: (api: string, start: string, end: string, parallel = 1) => {
-        const url = join(api, `master/migrate-between-bg/${start}/${end}`);
-
-        return parallel > 1 ? `${url}?parallel=${parallel}` : url;
-    },
+    migrateBetweenBg: (api: string, start: string, end: string, parallel = 1, orderByUsage = false) =>
+        withRangeOptions(join(api, `master/migrate-between-bg/${start}/${end}`), parallel, orderByUsage),
 
     /** 1-Dbt-Migrate — seçili Dbt migration, paket başına kuyruk. */
     dbtMigrateAllBg: (api: string, packNo: string, migrationName: string) =>
         join(api, `master/dbt-migrate-all-bg/${packNo}/${migrationName}`),
 
-    dbtMigrateBetweenBg: (api: string, start: string, end: string, migrationName: string) =>
-        join(api, `master/dbt-migrate-between-bg/${start}/${end}/${migrationName}`),
+    dbtMigrateBetweenBg: (
+        api: string,
+        start: string,
+        end: string,
+        migrationName: string,
+        parallel = 1,
+        orderByUsage = false,
+    ) =>
+        withRangeOptions(
+            join(api, `master/dbt-migrate-between-bg/${start}/${end}/${migrationName}`),
+            parallel,
+            orderByUsage,
+        ),
+
+    /**
+     * Paket kullanım sıralaması (önizleme): hangi paketler önce işlenir ve neden. Kaynak Login
+     * veritabanındaki giriş kayıtları; yalnız okur.
+     */
+    packUsageRanking: (api: string, from: number, to: number, top: number) =>
+        `${join(api, 'master/pack-usage-ranking')}?from=${from}&to=${to}&top=${top}`,
 
     /**
      * Otomatik DBS gönderiminin sunucu yapılandırması (salt okuma).

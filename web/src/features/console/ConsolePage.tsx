@@ -28,7 +28,10 @@ import {
     groupDbtMigrationNames,
     type DbtMigrationGroups,
 } from '../../operations/dbtMigrationNames';
+import { confirmLines } from '../../operations/migrationTemplate';
+import type { MigrationTemplate } from '../../operations/migrationTemplate';
 import { OperationLog } from '../../operations/operationLog';
+import { runTemplate } from '../../operations/templateRunner';
 import { runQueuedOperation } from '../../operations/queuedOperation';
 import type { ActiveMigrateJob } from '../../operations/types';
 import { describeActiveJob, resumeJobItems } from './activeJobs';
@@ -37,6 +40,8 @@ import { CounterBar } from './CounterBar';
 import { JobProgressPanel } from './JobProgressPanel';
 import { Field, Label, checkboxClass, inputClass, secondaryButtonClass, selectClass } from './formControls';
 import { LogPane } from './LogPane';
+import { TemplatePanel } from './TemplatePanel';
+import { UsagePreview } from './UsagePreview';
 import { useOperationLog } from './useOperationLog';
 
 export function ConsolePage() {
@@ -55,6 +60,12 @@ export function ConsolePage() {
      * yazarken "1" zorla geri yazılmasın. Sayıya çevirme tek yerde, isteği kurarken.
      */
     const [rangeParallelText, setRangeParallelText] = useState('1');
+
+    /** Aralıkta sık / sabah erken kullanılan paketler önce işlensin. */
+    const [rangeOrderByUsage, setRangeOrderByUsage] = useState(false);
+
+    /** Prod onayı bekleyen şablon (onaylanınca çalışır). */
+    const [pendingTemplate, setPendingTemplate] = useState<MigrationTemplate | null>(null);
 
     const [datNames, setDatNames] = useState<string[] | null>(null);
     const [dbtMigrations, setDbtMigrations] = useState<DbtMigrationGroups | null>(null);
@@ -225,7 +236,8 @@ export function ConsolePage() {
             endText: usesRange ? endText : '',
             datNames,
             isBetweenMode: usesBetweenMode && isBetweenMode,
-            rangeParallel: Number.parseInt(rangeParallelText, 10) || 1,
+            rangeParallel: Math.min(5, Math.max(1, Number.parseInt(rangeParallelText, 10) || 1)),
+            rangeOrderByUsage,
             dbtMigrationName,
             functionName,
             docStartDate,
@@ -271,6 +283,35 @@ export function ConsolePage() {
 
         try {
             await runOperation(kind, buildRequest(controller.signal));
+        } finally {
+            abortRef.current = null;
+            setIsRunning(false);
+        }
+    }
+
+    /** Şablonu başlatır; Prod'da önce tek onay (yazılan metin PROD). */
+    function handleTemplateRun(template: MigrationTemplate) {
+        if (environment.requiresConfirmation) {
+            setPendingTemplate(template);
+
+            return;
+        }
+
+        void startTemplate(template);
+    }
+
+    async function startTemplate(template: MigrationTemplate) {
+        setPendingTemplate(null);
+
+        const controller = new AbortController();
+
+        abortRef.current = controller;
+        setIsRunning(true);
+        log.reset();
+        log.setOperation(`Şablon: ${template.name}`);
+
+        try {
+            await runTemplate(template, buildRequest(controller.signal), runOperation);
         } finally {
             abortRef.current = null;
             setIsRunning(false);
@@ -524,8 +565,7 @@ export function ConsolePage() {
                         </label>
                     )}
 
-                    {/* Eşzamanlılık yalnız 0-Migrate'te: Dbt migration aralığı sunucuda hâlâ sırayla yürüyor. */}
-                    {kind === OPERATION_KINDS.migrate && isBetweenMode && (
+                    {usesBetweenMode && isBetweenMode && (
                         <Field>
                             <Label htmlFor="range-parallel">Eşzamanlı db</Label>
                             <input
@@ -542,6 +582,36 @@ export function ConsolePage() {
                                 tek iş girer. Varsayılan 1 (sırayla), en çok 5.
                             </p>
                         </Field>
+                    )}
+
+                    {usesBetweenMode && isBetweenMode && (
+                        <div className="space-y-2">
+                            <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+                                <input
+                                    type="checkbox"
+                                    checked={rangeOrderByUsage}
+                                    disabled={isRunning}
+                                    onChange={(e) => setRangeOrderByUsage(e.target.checked)}
+                                    className={checkboxClass}
+                                />
+                                <span>
+                                    Kullanım önceliği
+                                    <span className="block text-xs text-slate-500 dark:text-slate-400">
+                                        Sık ve sabah erken kullanılan paketler önce işlenir, kullanılmayanlar numara
+                                        sırasıyla sona kalır. Eşzamanlı db ile: önce öncelikliler biter.
+                                    </span>
+                                </span>
+                            </label>
+
+                            {rangeOrderByUsage && (
+                                <UsagePreview
+                                    apiBaseUrl={environment.apiBaseUrl}
+                                    startText={startText}
+                                    endText={endText}
+                                    disabled={isRunning}
+                                />
+                            )}
+                        </div>
                     )}
 
                     {usesMigrationName && (
@@ -750,6 +820,15 @@ export function ConsolePage() {
                     )}
                 </section>
 
+                <TemplatePanel
+                    isRunning={isRunning}
+                    requiresConfirmation={environment.requiresConfirmation}
+                    migrationNames={
+                        dbtMigrations ? [...dbtMigrations.standalone, ...dbtMigrations.versioned] : ['ModelIndexes']
+                    }
+                    onRun={handleTemplateRun}
+                />
+
                 <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                     <CounterBar
                         counters={snapshot.counters}
@@ -772,6 +851,16 @@ export function ConsolePage() {
                 operation={snapshot.operation}
                 isRunning={isRunning}
             />
+
+            {pendingTemplate && (
+                <ConfirmDialog
+                    title="Prod ortamında şablon çalışacak"
+                    summary={[...confirmLines(pendingTemplate), `Servis : ${environment.apiBaseUrl}`]}
+                    requiredText="PROD"
+                    onConfirm={() => void startTemplate(pendingTemplate)}
+                    onCancel={() => setPendingTemplate(null)}
+                />
+            )}
 
             {isConfirmOpen && (
                 <ConfirmDialog

@@ -67,6 +67,15 @@ export function HomeMenu({ onSelect }: Props) {
                     icon={<SendIcon />}
                     onClick={() => onSelect('dbs')}
                 />
+
+                <MenuCard
+                    title="Otomatik Hazırlık Yönetimi"
+                    description="Gece GİB faturalarından hazır fiş / Defter Beyan hazırlığını yayın yapmadan açıp kapatma."
+                    bullets={['Ana şalter', 'Paket aç / kapat', 'Tüm paketlere aç · açık paket listesi']}
+                    accent="text-amber-600 dark:text-amber-400"
+                    icon={<SwitchIcon />}
+                    onClick={() => onSelect('autointeg')}
+                />
             </div>
         </div>
     );
@@ -155,6 +164,23 @@ function TagIcon() {
         >
             <path d="M3 12.5V4.5h8l9.5 9.5-8 8L3 12.5z" strokeLinejoin="round" />
             <circle cx="7.75" cy="8.25" r="1.25" />
+        </svg>
+    );
+}
+
+function SwitchIcon() {
+    return (
+        <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden
+        >
+            <rect x="2" y="7" width="20" height="10" rx="5" />
+            <circle cx="16" cy="12" r="2.5" />
         </svg>
     );
 }

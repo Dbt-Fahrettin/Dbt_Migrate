@@ -85,6 +85,12 @@ export const endpoints = {
      */
     dbsAutoSendStatus: (api: string) => join(api, 'master/dbs-auto-send-status'),
 
+    /**
+     * Otomatik hazırlık (gece GİB faturalarından hazır fiş / Defter Beyan) yönetimi: `status` (GET) ve yazan uçlar
+     * (`master`, `packs/on|off|clear`, `all-on`, `all-off`, `reset`; POST). Servis anahtarı ister (bkz. api/autoInteg.ts).
+     */
+    autoInteg: (api: string, action: string) => join(api, `AutoIntegAdmin/${action}`),
+
     /** Sunucuda kuyrukta bekleyen ve koşan migration işleri. */
     dbtMigrateActive: (api: string) => join(api, 'master/dbt-migrate-active'),
 

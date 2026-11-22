@@ -4,7 +4,7 @@
  * Router kullanılmadı: birkaç ekran var, derin bağlantı ihtiyacı yok ve Capacitor paketinde
  * tarayıcı adres çubuğu da yok. Basit bir durum değişkeni yeterli.
  */
-export type AppView = 'menu' | 'migration' | 'gib' | 'versions' | 'dbs';
+export type AppView = 'menu' | 'migration' | 'gib' | 'versions' | 'dbs' | 'autointeg';
 
 export const VIEW_TITLES: Record<AppView, string> = {
     menu: 'Dbt Admin Console',
@@ -12,4 +12,5 @@ export const VIEW_TITLES: Record<AppView, string> = {
     gib: 'GİB API İşlemleri',
     versions: 'Servis Sürümleri',
     dbs: 'DBS Otomatik Gönderim',
+    autointeg: 'Otomatik Hazırlık Yönetimi',
 };

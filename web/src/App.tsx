@@ -6,6 +6,7 @@ import { ConsolePage } from './features/console/ConsolePage';
 import { GibNightlyPage } from './features/gib/GibNightlyPage';
 import { HomeMenu } from './features/home/HomeMenu';
 import { DbsAutoSendPage } from './features/dbs/DbsAutoSendPage';
+import { AutoIntegPage } from './features/autoint/AutoIntegPage';
 import { ServiceVersionsPage } from './features/versions/ServiceVersionsPage';
 import type { AppView } from './navigation';
 
@@ -56,6 +57,9 @@ export default function App() {
 
                 {/* Seçili ortamın servis anahtarıyla sorgular; ortam değişince sıfırlansın. */}
                 {view === 'dbs' && <DbsAutoSendPage key={environment.key} />}
+
+                {/* Anahtarlar seçili ortamın servisinde tutulur; ortam değişince sıfırlansın. */}
+                {view === 'autointeg' && <AutoIntegPage key={environment.key} />}
             </main>
         </div>
     );

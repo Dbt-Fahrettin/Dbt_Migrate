@@ -8,6 +8,7 @@ import { HomeMenu } from './features/home/HomeMenu';
 import { DbsAutoSendPage } from './features/dbs/DbsAutoSendPage';
 import { AutoIntegPage } from './features/autoint/AutoIntegPage';
 import { EtrStaticPage } from './features/etrstatic/EtrStaticPage';
+import { VersionPublishPage } from './features/versionpublish/VersionPublishPage';
 import { ServiceVersionsPage } from './features/versions/ServiceVersionsPage';
 import type { AppView } from './navigation';
 
@@ -64,6 +65,9 @@ export default function App() {
 
                 {/* Etr-static adresi ortama göre değişir; ortam değişince sıfırlansın. */}
                 {view === 'etrstatic' && <EtrStaticPage key={environment.key} />}
+
+                {/* Kayıt seçili ortamın Login.Api'sine yazılır; ortam değişince form sıfırlansın. */}
+                {view === 'versionpublish' && <VersionPublishPage key={environment.key} />}
             </main>
         </div>
     );

@@ -85,6 +85,15 @@ export function HomeMenu({ onSelect }: Props) {
                     icon={<ListIcon />}
                     onClick={() => onSelect('etrstatic')}
                 />
+
+                <MenuCard
+                    title="Versiyon Ekleme"
+                    description="Yeni istemci sürümü kaydı: sürüm numarası, hedef paketler, adresler ve sürüm notları."
+                    bullets={['Sürüm kaydı ekle', 'Zorunlu · e-Dönüşüm', 'Hedef paket tipi / numarası']}
+                    accent="text-teal-600 dark:text-teal-400"
+                    icon={<TagIcon />}
+                    onClick={() => onSelect('versionpublish')}
+                />
             </div>
         </div>
     );

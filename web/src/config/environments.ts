@@ -41,6 +41,12 @@ export interface ServiceEnvironment {
      */
     loginApiBaseUrl: string;
 
+    /**
+     * Etr-static servisinin kökü (e-Fatura / e-İrsaliye kayıtlı kullanıcı listesi), sonunda / olmadan.
+     * Kimlik istemez ve her kökene CORS açık; Service.Api'nin EtrStaticApiHelper'ı da aynı adresleri kullanır.
+     */
+    etrStaticBaseUrl: string;
+
     /** true ise işlem başlamadan önce ek onay istenir. */
     requiresConfirmation: boolean;
 
@@ -62,6 +68,7 @@ export const ENVIRONMENTS: ServiceEnvironment[] = [
         name: 'Local',
         apiBaseUrl: 'http://localhost:44305/api',
         gibApiBaseUrl: 'http://localhost:5225/api',
+        etrStaticBaseUrl: 'http://localhost:62541',
         loginApiBaseUrl: 'https://login-test.unideva.com/api',
         requiresConfirmation: false,
         sessionTtlHours: 24 * 30,
@@ -72,6 +79,7 @@ export const ENVIRONMENTS: ServiceEnvironment[] = [
         name: 'Test',
         apiBaseUrl: 'https://test.unideva.com/svc/api',
         gibApiBaseUrl: 'https://test.unideva.com/gib/api',
+        etrStaticBaseUrl: 'https://etr-static-test.unideva.com',
         loginApiBaseUrl: 'https://login-test.unideva.com/api',
         requiresConfirmation: false,
         sessionTtlHours: 24 * 30,
@@ -82,6 +90,7 @@ export const ENVIRONMENTS: ServiceEnvironment[] = [
         name: 'Prod',
         apiBaseUrl: 'https://hw.unideva.com/svc/api',
         gibApiBaseUrl: 'https://hw.unideva.com/gib/api',
+        etrStaticBaseUrl: 'https://etr-static-prod.unideva.com',
         loginApiBaseUrl: 'https://login.unideva.com/api',
         requiresConfirmation: true,
         sessionTtlHours: 12,
@@ -134,6 +143,10 @@ export function isBlockedByMixedContent(env: ServiceEnvironment): boolean {
 
 export function isGibBlockedByMixedContent(env: ServiceEnvironment): boolean {
     return isMixedContent(env.gibApiBaseUrl);
+}
+
+export function isEtrStaticBlockedByMixedContent(env: ServiceEnvironment): boolean {
+    return isMixedContent(env.etrStaticBaseUrl);
 }
 
 function isMixedContent(url: string): boolean {

@@ -76,6 +76,15 @@ export function HomeMenu({ onSelect }: Props) {
                     icon={<SwitchIcon />}
                     onClick={() => onSelect('autointeg')}
                 />
+
+                <MenuCard
+                    title="Etr Statik İşlemleri"
+                    description="Etr-static servisinin durumu, e-Fatura / e-İrsaliye kullanıcı listesini yenileme ve VKN sorgulama."
+                    bullets={['Servis durumu', 'Kullanıcı listesini yenile', 'VKN / TCKN sorgula']}
+                    accent="text-rose-600 dark:text-rose-400"
+                    icon={<ListIcon />}
+                    onClick={() => onSelect('etrstatic')}
+                />
             </div>
         </div>
     );
@@ -181,6 +190,25 @@ function SwitchIcon() {
         >
             <rect x="2" y="7" width="20" height="10" rx="5" />
             <circle cx="16" cy="12" r="2.5" />
+        </svg>
+    );
+}
+
+function ListIcon() {
+    return (
+        <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            aria-hidden
+        >
+            <path d="M8 6h12M8 12h12M8 18h12" strokeLinecap="round" />
+            <circle cx="4" cy="6" r="1" />
+            <circle cx="4" cy="12" r="1" />
+            <circle cx="4" cy="18" r="1" />
         </svg>
     );
 }

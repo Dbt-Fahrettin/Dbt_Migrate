@@ -7,6 +7,7 @@ import { GibNightlyPage } from './features/gib/GibNightlyPage';
 import { HomeMenu } from './features/home/HomeMenu';
 import { DbsAutoSendPage } from './features/dbs/DbsAutoSendPage';
 import { AutoIntegPage } from './features/autoint/AutoIntegPage';
+import { EtrStaticPage } from './features/etrstatic/EtrStaticPage';
 import { ServiceVersionsPage } from './features/versions/ServiceVersionsPage';
 import type { AppView } from './navigation';
 
@@ -60,6 +61,9 @@ export default function App() {
 
                 {/* Anahtarlar seçili ortamın servisinde tutulur; ortam değişince sıfırlansın. */}
                 {view === 'autointeg' && <AutoIntegPage key={environment.key} />}
+
+                {/* Etr-static adresi ortama göre değişir; ortam değişince sıfırlansın. */}
+                {view === 'etrstatic' && <EtrStaticPage key={environment.key} />}
             </main>
         </div>
     );

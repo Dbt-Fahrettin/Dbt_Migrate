@@ -7,6 +7,26 @@ import { BUILT_IN_TEMPLATES, parseTemplate } from './migrationTemplate';
 import type { MigrationTemplate, TemplateEnvKey } from './migrationTemplate';
 
 const STORAGE_KEY = 'dbt-admin.migration-templates.v1';
+const HIDDEN_KEY = 'dbt-admin.migration-templates.hidden.v1';
+
+/** Silinen yerleşik şablon kimlikleri (yerleşikler koddadır; silmek yalnız bu tarayıcıda gizler). */
+export function loadHiddenIds(): string[] {
+    try {
+        const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(HIDDEN_KEY) ?? '[]');
+
+        return Array.isArray(parsed) ? parsed.filter((d): d is string => typeof d === 'string') : [];
+    } catch {
+        return [];
+    }
+}
+
+export function saveHiddenIds(ids: string[]): void {
+    try {
+        globalThis.localStorage?.setItem(HIDDEN_KEY, JSON.stringify(ids));
+    } catch {
+        // Yazılamazsa gizleme yalnız bu oturumda geçerli olur.
+    }
+}
 
 export function loadUserTemplates(): MigrationTemplate[] {
     try {

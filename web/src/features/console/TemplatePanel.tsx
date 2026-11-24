@@ -8,7 +8,14 @@ import {
 } from '../../operations/migrationTemplate';
 import { templatesForEnv } from '../../operations/migrationTemplate';
 import type { MigrationTemplate, TemplateEnvKey, TemplateStep } from '../../operations/migrationTemplate';
-import { allTemplates, copyTemplate, loadUserTemplates, saveUserTemplates } from '../../operations/templateStore';
+import {
+    allTemplates,
+    copyTemplate,
+    loadHiddenIds,
+    loadUserTemplates,
+    saveHiddenIds,
+    saveUserTemplates,
+} from '../../operations/templateStore';
 import { inputClass, secondaryButtonClass, selectClass } from './formControls';
 
 interface Props {
@@ -29,7 +36,9 @@ const smallButton =
  */
 export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames, envKey, onRun }: Props) {
     const [userTemplates, setUserTemplates] = useState<MigrationTemplate[]>(() => loadUserTemplates());
-    const templates = templatesForEnv(allTemplates(userTemplates), envKey);
+    const [hiddenIds, setHiddenIds] = useState<string[]>(() => loadHiddenIds());
+    const templates = templatesForEnv(allTemplates(userTemplates), envKey).filter((d) => !hiddenIds.includes(d.id));
+    const hiddenCount = templatesForEnv(allTemplates(userTemplates), envKey).filter((d) => hiddenIds.includes(d.id)).length;
     // Açılışta hiçbir şablon seçili gelmez: yanlışlıkla çalıştırmayı önler.
     const [selectedId, setSelectedId] = useState('');
     const [error, setError] = useState('');
@@ -84,8 +93,29 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
             return;
         }
 
-        commit(userTemplates.filter((d) => d.id !== selected.id));
+        if (!globalThis.confirm(`"${selected.name}" şablonu silinsin mi?`)) {
+            return;
+        }
+
+        if (selected.isBuiltIn) {
+            const next = [...hiddenIds, selected.id];
+
+            setHiddenIds(next);
+            saveHiddenIds(next);
+        } else {
+            commit(userTemplates.filter((d) => d.id !== selected.id));
+        }
+
         setSelectedId('');
+        setError('');
+    }
+
+    function restoreBuiltIns() {
+        const visible = new Set(templatesForEnv(allTemplates(userTemplates), envKey).map((d) => d.id));
+        const next = hiddenIds.filter((id) => !visible.has(id));
+
+        setHiddenIds(next);
+        saveHiddenIds(next);
     }
 
     function run() {
@@ -130,7 +160,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
 
             {selected?.isBuiltIn && (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Yerleşik şablon değiştirilemez; ayarlamak için “Kopya” açın.
+                    Yerleşik şablon değiştirilemez; ayarlamak için “Kopya” açın. Silerseniz yalnız bu tarayıcıda gizlenir.
                 </p>
             )}
 
@@ -273,6 +303,12 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
                 </p>
             )}
 
+            {hiddenCount > 0 && (
+                <button type="button" className="text-xs text-sky-600 underline" onClick={restoreBuiltIns}>
+                    Silinen yerleşik şablonları geri getir ({hiddenCount})
+                </button>
+            )}
+
             <div className="flex gap-2">
                 <button
                     type="button"
@@ -288,7 +324,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
                 <button type="button" className={smallButton} onClick={makeCopy} disabled={isRunning || !selected}>
                     Kopya
                 </button>
-                {selected && !selected.isBuiltIn && (
+                {selected && (
                     <button type="button" className={smallButton} onClick={removeSelected} disabled={isRunning}>
                         Sil
                     </button>

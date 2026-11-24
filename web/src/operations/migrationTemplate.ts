@@ -49,7 +49,17 @@ export interface MigrationTemplate {
     /** Yerleşik şablon silinemez ve değiştirilemez; "kopya olarak kaydet" ile özelleştirilir. */
     isBuiltIn: boolean;
 
+    /** Şablonun görüneceği ortam; yoksa (eski kayıt) her ortamda görünür. */
+    envKey?: TemplateEnvKey;
+
     steps: TemplateStep[];
+}
+
+export type TemplateEnvKey = 'local' | 'test' | 'prod';
+
+/** Ortama göre görünen şablonlar: ortamı olmayan (eski) kayıt her yerde görünür. */
+export function templatesForEnv(templates: MigrationTemplate[], env: TemplateEnvKey): MigrationTemplate[] {
+    return templates.filter((d) => !d.envKey || d.envKey === env);
 }
 
 export const MAX_PARALLEL = 5;
@@ -218,14 +228,23 @@ export function confirmLines(template: MigrationTemplate): string[] {
  */
 export const BUILT_IN_TEMPLATES: MigrationTemplate[] = [
     {
-        id: 'builtin-standard',
-        name: 'Standart sıra: Temp → 123 → 50xxxx',
+        id: 'builtin-test',
+        name: 'Test sırası: Temp → 123',
         isBuiltIn: true,
+        envKey: 'test',
         steps: [
             newStepStable('b1', { kind: 'migrate', start: '0' }),
             newStepStable('b2', { kind: 'dbtMigrate', start: '0', migrationName: 'ModelIndexes' }),
             newStepStable('b3', { kind: 'migrate', start: '123' }),
             newStepStable('b4', { kind: 'dbtMigrate', start: '123', migrationName: 'ModelIndexes' }),
+        ],
+    },
+    {
+        id: 'builtin-prod',
+        name: 'Canlı sırası: 50xxxx',
+        isBuiltIn: true,
+        envKey: 'prod',
+        steps: [
             newStepStable('b5', { kind: 'migrate', start: '50', isRange: true, parallel: 3, orderByUsage: true }),
             newStepStable('b6', {
                 kind: 'dbtMigrate',
@@ -273,7 +292,10 @@ export function parseTemplate(raw: unknown): MigrationTemplate | null {
         steps.push(step);
     }
 
-    return { id: source.id, name: source.name, isBuiltIn: false, steps };
+    const envKey =
+        source.envKey === 'local' || source.envKey === 'test' || source.envKey === 'prod' ? source.envKey : undefined;
+
+    return { id: source.id, name: source.name, isBuiltIn: false, envKey, steps };
 }
 
 function parseStep(raw: unknown): TemplateStep | null {

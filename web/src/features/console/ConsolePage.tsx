@@ -826,6 +826,7 @@ export function ConsolePage() {
                     migrationNames={
                         dbtMigrations ? [...dbtMigrations.standalone, ...dbtMigrations.versioned] : ['ModelIndexes']
                     }
+                    envKey={environment.key}
                     onRun={handleTemplateRun}
                 />
 

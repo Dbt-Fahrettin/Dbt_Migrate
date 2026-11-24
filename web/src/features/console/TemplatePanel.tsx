@@ -6,7 +6,8 @@ import {
     newStep,
     validateTemplate,
 } from '../../operations/migrationTemplate';
-import type { MigrationTemplate, TemplateStep } from '../../operations/migrationTemplate';
+import { templatesForEnv } from '../../operations/migrationTemplate';
+import type { MigrationTemplate, TemplateEnvKey, TemplateStep } from '../../operations/migrationTemplate';
 import { allTemplates, copyTemplate, loadUserTemplates, saveUserTemplates } from '../../operations/templateStore';
 import { inputClass, secondaryButtonClass, selectClass } from './formControls';
 
@@ -14,6 +15,7 @@ interface Props {
     isRunning: boolean;
     requiresConfirmation: boolean;
     migrationNames: string[];
+    envKey: TemplateEnvKey;
     onRun: (template: MigrationTemplate) => void;
 }
 
@@ -25,13 +27,14 @@ const smallButton =
  * Migration şablonları: sırayla çalışan adımlar (ör. Temp → 123 → 50xxxx; her grupta Migration sonra
  * ModelIndexes). Yerleşik şablon değiştirilemez; "Kopya" ile düzenlenebilir kopya açılır.
  */
-export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames, onRun }: Props) {
+export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames, envKey, onRun }: Props) {
     const [userTemplates, setUserTemplates] = useState<MigrationTemplate[]>(() => loadUserTemplates());
-    const templates = allTemplates(userTemplates);
-    const [selectedId, setSelectedId] = useState(templates[0].id);
+    const templates = templatesForEnv(allTemplates(userTemplates), envKey);
+    // Açılışta hiçbir şablon seçili gelmez: yanlışlıkla çalıştırmayı önler.
+    const [selectedId, setSelectedId] = useState('');
     const [error, setError] = useState('');
 
-    const selected = templates.find((d) => d.id === selectedId) ?? templates[0];
+    const selected = templates.find((d) => d.id === selectedId) ?? null;
 
     function commit(next: MigrationTemplate[]) {
         setUserTemplates(next);
@@ -39,6 +42,10 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
     }
 
     function updateSelected(patch: (template: MigrationTemplate) => MigrationTemplate) {
+        if (!selected) {
+            return;
+        }
+
         commit(userTemplates.map((d) => (d.id === selected.id ? patch(d) : d)));
     }
 
@@ -62,18 +69,30 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
     }
 
     function makeCopy() {
-        const copy = copyTemplate(selected, `${selected.name} (kopya)`);
+        if (!selected) {
+            return;
+        }
+
+        const copy = copyTemplate(selected, `${selected.name} (kopya)`, envKey);
 
         commit([...userTemplates, copy]);
         setSelectedId(copy.id);
     }
 
     function removeSelected() {
+        if (!selected) {
+            return;
+        }
+
         commit(userTemplates.filter((d) => d.id !== selected.id));
-        setSelectedId(templates[0].id);
+        setSelectedId('');
     }
 
     function run() {
+        if (!selected) {
+            return;
+        }
+
         const problem = validateTemplate(selected);
 
         setError(problem);
@@ -83,7 +102,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
         }
     }
 
-    const editable = !selected.isBuiltIn && !isRunning;
+    const editable = !!selected && !selected.isBuiltIn && !isRunning;
 
     return (
         <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -92,7 +111,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
             </h2>
 
             <select
-                value={selected.id}
+                value={selected?.id ?? ''}
                 onChange={(e) => {
                     setSelectedId(e.target.value);
                     setError('');
@@ -100,6 +119,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
                 disabled={isRunning}
                 className={selectClass}
             >
+                <option value="">Şablon seçin…</option>
                 {templates.map((d) => (
                     <option key={d.id} value={d.id}>
                         {d.name}
@@ -108,7 +128,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
                 ))}
             </select>
 
-            {selected.isBuiltIn && (
+            {selected?.isBuiltIn && (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                     Yerleşik şablon değiştirilemez; ayarlamak için “Kopya” açın.
                 </p>
@@ -116,7 +136,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
 
             {editable && (
                 <input
-                    value={selected.name}
+                    value={selected?.name ?? ''}
                     onChange={(e) => updateSelected((t) => ({ ...t, name: e.target.value }))}
                     className={inputClass}
                     aria-label="Şablon adı"
@@ -130,7 +150,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
             </datalist>
 
             <ol className="space-y-2">
-                {selected.steps.map((step, index) =>
+                {(selected?.steps ?? []).map((step, index) =>
                     editable ? (
                         <li key={step.id} className="space-y-1 rounded-lg border border-slate-200 p-2 dark:border-slate-800">
                             <div className="grid grid-cols-2 gap-1">
@@ -257,7 +277,7 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
                 <button
                     type="button"
                     onClick={run}
-                    disabled={isRunning}
+                    disabled={isRunning || !selected}
                     className={[
                         'flex-1 rounded-lg px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-50',
                         requiresConfirmation ? 'bg-red-600 hover:bg-red-500' : 'bg-sky-600 hover:bg-sky-500',
@@ -265,10 +285,10 @@ export function TemplatePanel({ isRunning, requiresConfirmation, migrationNames,
                 >
                     Şablonu çalıştır
                 </button>
-                <button type="button" className={smallButton} onClick={makeCopy} disabled={isRunning}>
+                <button type="button" className={smallButton} onClick={makeCopy} disabled={isRunning || !selected}>
                     Kopya
                 </button>
-                {!selected.isBuiltIn && (
+                {selected && !selected.isBuiltIn && (
                     <button type="button" className={smallButton} onClick={removeSelected} disabled={isRunning}>
                         Sil
                     </button>

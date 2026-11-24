@@ -34,9 +34,16 @@ function baseRequest(signal: AbortSignal = new AbortController().signal): Operat
     };
 }
 
+const FULL = {
+    id: 'full',
+    name: 'tam',
+    isBuiltIn: true,
+    steps: [...BUILT_IN_TEMPLATES[0].steps, ...BUILT_IN_TEMPLATES[1].steps],
+};
+
 describe('yerleşik şablon', () => {
     it('geçerli ve her grupta önce Migration sonra ModelIndexes', () => {
-        const template = BUILT_IN_TEMPLATES[0];
+        const template = FULL;
 
         expect(validateTemplate(template)).toBe('');
         expect(template.steps.map((d) => d.kind)).toEqual([
@@ -52,7 +59,7 @@ describe('yerleşik şablon', () => {
     });
 
     it('canlı adımlar aralık, eşzamanlı ve kullanım öncelikli', () => {
-        const live = BUILT_IN_TEMPLATES[0].steps.filter((d) => d.start === '50');
+        const live = FULL.steps.filter((d) => d.start === '50');
 
         expect(live.every((d) => d.isRange && d.parallel === 3 && d.orderByUsage)).toBe(true);
     });
@@ -77,7 +84,7 @@ describe('doğrulama', () => {
     });
 
     it('şablon hatası adım numarasını söyler', () => {
-        const template = { ...BUILT_IN_TEMPLATES[0], steps: [newStep({ start: '0' }), newStep({ start: 'x' })] };
+        const template = { ...FULL, steps: [newStep({ start: '0' }), newStep({ start: 'x' })] };
 
         expect(validateTemplate(template)).toMatch(/^Adım 2:/);
     });
@@ -85,11 +92,11 @@ describe('doğrulama', () => {
 
 describe('metinler', () => {
     it('adım özeti ve onay satırları sırayı gösterir', () => {
-        const step = BUILT_IN_TEMPLATES[0].steps[5];
+        const step = FULL.steps[5];
 
         expect(describeStep(step)).toBe('1-Dbt-Migrate ModelIndexes · 50* · aralık, 3 eşzamanlı, kullanım önceliği');
 
-        const lines = confirmLines(BUILT_IN_TEMPLATES[0]);
+        const lines = confirmLines(FULL);
 
         expect(lines).toHaveLength(8);
         expect(lines[2]).toMatch(/^1\. 0-Migrate · Dbt_Temp/);
@@ -110,7 +117,7 @@ describe('saklama biçimi', () => {
 
 describe('çalıştırıcı', () => {
     it('adım girdilerini işlem isteğine çevirir', () => {
-        const request = requestForStep(baseRequest(), BUILT_IN_TEMPLATES[0].steps[5]);
+        const request = requestForStep(baseRequest(), FULL.steps[5]);
 
         expect(request).toMatchObject({
             startText: '50',
@@ -125,7 +132,7 @@ describe('çalıştırıcı', () => {
     it('adımları sırayla çalıştırır', async () => {
         const seen: string[] = [];
 
-        const result = await runTemplate(BUILT_IN_TEMPLATES[0], baseRequest(), async (kind, request) => {
+        const result = await runTemplate(FULL, baseRequest(), async (kind, request) => {
             seen.push(`${kind}:${request.startText}`);
         });
 
@@ -138,7 +145,7 @@ describe('çalıştırıcı', () => {
         const request = baseRequest();
         let calls = 0;
 
-        const result = await runTemplate(BUILT_IN_TEMPLATES[0], request, async () => {
+        const result = await runTemplate(FULL, request, async () => {
             calls += 1;
 
             if (calls === 2) {
@@ -153,7 +160,7 @@ describe('çalıştırıcı', () => {
 
     it('"devam" politikasında hatadan sonra sürer', async () => {
         const template = {
-            ...BUILT_IN_TEMPLATES[0],
+            ...FULL,
             steps: [newStep({ start: '0', onError: 'continue' }), newStep({ start: '123' })],
         };
         let calls = 0;
@@ -173,7 +180,7 @@ describe('çalıştırıcı', () => {
         const controller = new AbortController();
         let calls = 0;
 
-        const result = await runTemplate(BUILT_IN_TEMPLATES[0], baseRequest(controller.signal), async () => {
+        const result = await runTemplate(FULL, baseRequest(controller.signal), async () => {
             calls += 1;
             controller.abort();
         });

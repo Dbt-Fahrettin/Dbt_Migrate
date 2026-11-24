@@ -4,7 +4,7 @@
  */
 
 import { BUILT_IN_TEMPLATES, parseTemplate } from './migrationTemplate';
-import type { MigrationTemplate } from './migrationTemplate';
+import type { MigrationTemplate, TemplateEnvKey } from './migrationTemplate';
 
 const STORAGE_KEY = 'dbt-admin.migration-templates.v1';
 
@@ -44,13 +44,14 @@ export function allTemplates(user: MigrationTemplate[]): MigrationTemplate[] {
 }
 
 /** Yerleşik şablondan (ya da başka şablondan) düzenlenebilir kopya. */
-export function copyTemplate(source: MigrationTemplate, name: string): MigrationTemplate {
+export function copyTemplate(source: MigrationTemplate, name: string, envKey?: TemplateEnvKey): MigrationTemplate {
     const id = globalThis.crypto?.randomUUID?.() ?? `t-${Date.now().toString(36)}`;
 
     return {
         id,
         name,
         isBuiltIn: false,
+        envKey: envKey ?? source.envKey,
         steps: source.steps.map((d, index) => ({ ...d, id: `${id}-${index}` })),
     };
 }

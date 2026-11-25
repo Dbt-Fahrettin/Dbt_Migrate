@@ -82,6 +82,25 @@ export function groupServices(builds: AdoBuildDefinition[], releases: AdoRelease
         .sort((a, b) => a.service.localeCompare(b.service, 'tr'));
 }
 
+/** Kullanıcının verdiği sıra numaraları (servis adı → numara). */
+export type ServiceOrders = Record<string, number>;
+
+/** Numara verilenler küçükten büyüğe önce, kalanlar alfabetik. Aynı numarada alfabetik. */
+export function sortServices(groups: ServiceGroup[], orders: ServiceOrders): ServiceGroup[] {
+    const orderOf = (g: ServiceGroup): number => {
+        const n = orders[g.service];
+
+        return typeof n === 'number' && Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+    };
+
+    return [...groups].sort((a, b) => {
+        const diff = orderOf(a) - orderOf(b);
+
+        // Sonsuz - sonsuz NaN verir; ikisi de numarasızsa alfabetiğe düş.
+        return Number.isNaN(diff) || diff === 0 ? a.service.localeCompare(b.service, 'tr') : diff;
+    });
+}
+
 export type Tone = 'ok' | 'bad' | 'run' | 'wait' | 'idle';
 
 export interface StateLabel {

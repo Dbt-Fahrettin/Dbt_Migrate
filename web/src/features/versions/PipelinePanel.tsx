@@ -30,8 +30,9 @@ import {
     lastSucceededBuild,
     pendingApprovalOf,
     releaseDescription,
+    sortServices,
 } from './pipelineModel';
-import type { ServiceGroup, StateLabel, Tone, Track } from './pipelineModel';
+import type { ServiceGroup, ServiceOrders, StateLabel, Tone, Track } from './pipelineModel';
 
 /**
  * Yayın hattı: dbt servislerinin Azure DevOps pipeline'ını başlatır, build bitince release oluşturur, canlı ortam
@@ -42,7 +43,26 @@ import type { ServiceGroup, StateLabel, Tone, Track } from './pipelineModel';
  */
 
 const PAT_KEY = 'dbt-admin.azure-pat.v1';
+const ORDER_KEY = 'dbt-admin.pipeline-order.v1';
 const POLL_MS = 10_000;
+
+function readOrders(): ServiceOrders {
+    try {
+        const parsed: unknown = JSON.parse(window.localStorage.getItem(ORDER_KEY) ?? '{}');
+
+        return parsed && typeof parsed === 'object' ? (parsed as ServiceOrders) : {};
+    } catch {
+        return {};
+    }
+}
+
+function storeOrders(orders: ServiceOrders): void {
+    try {
+        window.localStorage.setItem(ORDER_KEY, JSON.stringify(orders));
+    } catch {
+        /* saklanamazsa yalnız bu oturumda geçerli kalır */
+    }
+}
 
 const inputCls =
     'w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100';
@@ -118,6 +138,21 @@ export function PipelinePanel({ onOpenMigration }: Props) {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [pending, setPending] = useState<Pending | null>(null);
+    const [orders, setOrders] = useState<ServiceOrders>(readOrders);
+
+    function setOrder(service: string, text: string): void {
+        const next = { ...orders };
+        const n = Number(text);
+
+        if (text.trim() === '' || !Number.isFinite(n)) {
+            delete next[service];
+        } else {
+            next[service] = n;
+        }
+
+        setOrders(next);
+        storeOrders(next);
+    }
 
     // Build bitince release'i kendiliğinden açılacak hatlar: hat anahtarı → izlenen build.
     // Ref yoklama döngüsü için, `watched` ekranda "bitince release açılacak" notu için.
@@ -404,9 +439,21 @@ export function PipelinePanel({ onOpenMigration }: Props) {
             )}
 
             <div className="mt-3 space-y-3">
-                {(groups ?? []).map((group) => (
+                {sortServices(groups ?? [], orders).map((group) => (
                     <div key={group.service} className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-                        <h3 className="font-mono text-sm font-bold text-slate-900 dark:text-slate-50">{group.service}</h3>
+                        <div className="flex items-center justify-between gap-2">
+                            <h3 className="font-mono text-sm font-bold text-slate-900 dark:text-slate-50">{group.service}</h3>
+                            <label className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                                Sıra
+                                <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    className={`${inputCls} w-16 !py-0.5 text-xs`}
+                                    value={orders[group.service] ?? ''}
+                                    onChange={(e) => setOrder(group.service, e.target.value)}
+                                />
+                            </label>
+                        </div>
 
                         <div className="mt-2 grid gap-2 lg:grid-cols-2">
                             {group.tracks.map((track) => (

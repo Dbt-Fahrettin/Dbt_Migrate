@@ -10,6 +10,7 @@ import {
     lastSucceededBuild,
     pendingApprovalOf,
     serviceNameOf,
+    sortServices,
 } from './pipelineModel';
 
 const art = (id: number) => [{ alias: 'manifest', type: 'Build', definitionReference: { definition: { id: String(id) } } }];
@@ -78,5 +79,19 @@ describe('durumlar', () => {
         expect(canStartEnvironment([{ ...env, status: 'inProgress' }, prod], 1)).toBe(false);
         expect(canStartEnvironment([{ ...env, status: 'succeeded' }, prod], 1)).toBe(true);
         expect(environmentState({ ...env, status: 'succeeded' }).tone).toBe('ok');
+    });
+});
+
+describe('sıralama', () => {
+    const g = (service: string) => ({ service, tracks: [] });
+
+    it('numaralılar önce, kalanlar alfabetik', () => {
+        const sorted = sortServices([g('news'), g('admin'), g('login'), g('static'), g('ntf')], { static: 1, login: 2 });
+
+        expect(sorted.map((x) => x.service)).toEqual(['static', 'login', 'admin', 'news', 'ntf']);
+    });
+
+    it('aynı numarada alfabetik', () => {
+        expect(sortServices([g('b'), g('a')], { a: 1, b: 1 }).map((x) => x.service)).toEqual(['a', 'b']);
     });
 });

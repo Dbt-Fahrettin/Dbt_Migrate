@@ -55,7 +55,7 @@ export default function App() {
                 {view === 'gib' && <GibNightlyPage key={environment.key} />}
 
                 {/* Sürüm ekranı seçili ortamdan bağımsız çalışır; key verilmez. */}
-                {view === 'versions' && <ServiceVersionsPage />}
+                {view === 'versions' && <ServiceVersionsPage onOpenMigration={() => setView('migration')} />}
 
                 {/* Seçili ortamın servis anahtarıyla sorgular; ortam değişince sıfırlansın. */}
                 {view === 'dbs' && <DbsAutoSendPage key={environment.key} />}

@@ -11,6 +11,7 @@ import {
 } from '../../api/serviceVersions';
 import { ENV_ACCENT } from '../../components/envAccent';
 import type { ServiceEnvironment } from '../../config/environments';
+import { PipelinePanel } from './PipelinePanel';
 
 /**
  * Test ve Prod'daki Service.Api / Gib.Api / Login.Api sürümlerini gösterir.
@@ -39,7 +40,11 @@ interface CellState {
 
 const EMPTY_CELL: CellState = { status: 'idle', version: '', appName: '', raw: '', error: '', at: '' };
 
-export function ServiceVersionsPage() {
+interface PageProps {
+    onOpenMigration?: () => void;
+}
+
+export function ServiceVersionsPage({ onOpenMigration }: PageProps) {
     const [cells, setCells] = useState<Record<string, CellState>>({});
 
     // Ekrandan çıkılınca ya da yeni sorgu başlayınca uçuştaki istekler iptal edilsin.
@@ -176,6 +181,8 @@ export function ServiceVersionsPage() {
                 Sürüm bilgisi her servisin <code>test</code> ucundan okunur. Bu uçlar kimlik doğrulaması ve
                 servis anahtarı istemez, veritabanına dokunmaz.
             </p>
+
+            <PipelinePanel onOpenMigration={onOpenMigration} />
         </div>
     );
 }

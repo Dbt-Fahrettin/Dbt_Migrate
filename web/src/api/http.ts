@@ -70,7 +70,26 @@ export async function getJson<T>(
     }
 }
 
-export async function postJson<T>(
+export function postJson<T>(
+    url: string,
+    body: unknown,
+    signal?: AbortSignal,
+    headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+    return sendJson<T>('POST', url, body, signal, headers);
+}
+
+export function patchJson<T>(
+    url: string,
+    body: unknown,
+    signal?: AbortSignal,
+    headers?: Record<string, string>,
+): Promise<ApiResult<T>> {
+    return sendJson<T>('PATCH', url, body, signal, headers);
+}
+
+async function sendJson<T>(
+    method: 'POST' | 'PATCH',
     url: string,
     body: unknown,
     signal?: AbortSignal,
@@ -78,7 +97,7 @@ export async function postJson<T>(
 ): Promise<ApiResult<T>> {
     try {
         const response = await fetch(url, {
-            method: 'POST',
+            method,
             headers: { 'Content-Type': 'application/json', ...headers },
             body: JSON.stringify(body),
             signal,

@@ -42,6 +42,7 @@ const PROD_ENV = /huawei|prod|canl/i;
 export function serviceNameOf(releaseName: string): string {
     const match = /^(.*?)[-\s]deploy\b/i.exec(releaseName.trim());
 
+    // unideva projesinde ad "Service.Api (Test-Prod)" biçimindedir: sondaki parantezli ek atılır.
     return (match ? match[1] : releaseName.replace(/\s*\(.*\)\s*$/, '')).trim();
 }
 
@@ -72,7 +73,7 @@ export function groupServices(builds: AdoBuildDefinition[], releases: AdoRelease
         }
 
         const kind = kindOf(release);
-        const track: Track = { key: `${service}:${kind}`, kind, service, build, release, artifactAlias: artifact.alias };
+        const track: Track = { key: `${service}:${kind}:${release.id}`, kind, service, build, release, artifactAlias: artifact.alias };
 
         groups.set(service, [...(groups.get(service) ?? []), track]);
     }

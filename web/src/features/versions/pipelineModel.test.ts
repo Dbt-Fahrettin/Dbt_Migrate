@@ -20,6 +20,8 @@ describe('servis adı', () => {
         expect(serviceNameOf('login-deploy (TEST-PROD)')).toBe('login');
         expect(serviceNameOf('etr-credentials-deploy (TEST)')).toBe('etr-credentials');
         expect(serviceNameOf('devatekcom-deploy')).toBe('devatekcom');
+        expect(serviceNameOf('Service.Api (Test-Prod)')).toBe('Service.Api');
+        expect(serviceNameOf('Unideva.Zone (Test-Prod-Web)')).toBe('Unideva.Zone');
     });
 });
 

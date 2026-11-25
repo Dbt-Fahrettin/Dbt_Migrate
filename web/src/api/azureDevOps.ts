@@ -12,10 +12,13 @@ import { getJson, patchJson, postJson } from './http';
 import type { ApiResult } from './http';
 
 export const AZURE_ORG = 'devatek';
-export const AZURE_PROJECT = 'dbt';
 
-const BUILD_ROOT = `https://dev.azure.com/${AZURE_ORG}/${AZURE_PROJECT}/_apis`;
-const RELEASE_ROOT = `https://vsrm.dev.azure.com/${AZURE_ORG}/${AZURE_PROJECT}/_apis`;
+/** Konsolun yönettiği Azure DevOps projeleri (aynı organizasyon, aynı PAT). */
+export const AZURE_PROJECTS = ['dbt', 'unideva'] as const;
+export type AzureProject = (typeof AZURE_PROJECTS)[number];
+
+const buildRoot = (project: string): string => `https://dev.azure.com/${AZURE_ORG}/${project}/_apis`;
+const releaseRoot = (project: string): string => `https://vsrm.dev.azure.com/${AZURE_ORG}/${project}/_apis`;
 const API = 'api-version=7.1';
 
 export interface AdoBuild {
@@ -109,39 +112,50 @@ export function describeAzureFailure<T>(result: ApiResult<T>): string {
     return '';
 }
 
-export function listBuildDefinitions(pat: string, signal?: AbortSignal): Promise<ApiResult<Listed<AdoBuildDefinition>>> {
-    return getJson(`${BUILD_ROOT}/build/definitions?${API}`, signal, authHeaders(pat));
+export function listBuildDefinitions(
+    project: string,
+    pat: string, signal?: AbortSignal): Promise<ApiResult<Listed<AdoBuildDefinition>>> {
+    return getJson(`${buildRoot(project)}/build/definitions?${API}`, signal, authHeaders(pat));
 }
 
-export function listReleaseDefinitions(pat: string, signal?: AbortSignal): Promise<ApiResult<Listed<AdoReleaseDefinition>>> {
+export function listReleaseDefinitions(
+    project: string,
+    pat: string, signal?: AbortSignal): Promise<ApiResult<Listed<AdoReleaseDefinition>>> {
     return getJson(
-        `${RELEASE_ROOT}/release/definitions?%24expand=artifacts%2Cenvironments&${API}`,
+        `${releaseRoot(project)}/release/definitions?%24expand=artifacts%2Cenvironments&${API}`,
         signal,
         authHeaders(pat),
     );
 }
 
-export function listBuilds(pat: string, definitionId: number, top: number, signal?: AbortSignal): Promise<ApiResult<Listed<AdoBuild>>> {
+export function listBuilds(
+    project: string,
+    pat: string, definitionId: number, top: number, signal?: AbortSignal): Promise<ApiResult<Listed<AdoBuild>>> {
     return getJson(
-        `${BUILD_ROOT}/build/builds?definitions=${definitionId}&%24top=${top}&queryOrder=queueTimeDescending&${API}`,
+        `${buildRoot(project)}/build/builds?definitions=${definitionId}&%24top=${top}&queryOrder=queueTimeDescending&${API}`,
         signal,
         authHeaders(pat),
     );
 }
 
-export function queueBuild(pat: string, definitionId: number, signal?: AbortSignal): Promise<ApiResult<AdoBuild>> {
-    return postJson(`${BUILD_ROOT}/build/builds?${API}`, { definition: { id: definitionId } }, signal, authHeaders(pat));
+export function queueBuild(
+    project: string,
+    pat: string, definitionId: number, signal?: AbortSignal): Promise<ApiResult<AdoBuild>> {
+    return postJson(`${buildRoot(project)}/build/builds?${API}`, { definition: { id: definitionId } }, signal, authHeaders(pat));
 }
 
-export function listReleases(pat: string, definitionId: number, top: number, signal?: AbortSignal): Promise<ApiResult<Listed<AdoRelease>>> {
+export function listReleases(
+    project: string,
+    pat: string, definitionId: number, top: number, signal?: AbortSignal): Promise<ApiResult<Listed<AdoRelease>>> {
     return getJson(
-        `${RELEASE_ROOT}/release/releases?definitionId=${definitionId}&%24top=${top}&%24expand=environments%2Cartifacts&queryOrder=descending&${API}`,
+        `${releaseRoot(project)}/release/releases?definitionId=${definitionId}&%24top=${top}&%24expand=environments%2Cartifacts&queryOrder=descending&${API}`,
         signal,
         authHeaders(pat),
     );
 }
 
 export function createRelease(
+    project: string,
     pat: string,
     definitionId: number,
     artifactAlias: string,
@@ -150,7 +164,7 @@ export function createRelease(
     signal?: AbortSignal,
 ): Promise<ApiResult<AdoRelease>> {
     return postJson(
-        `${RELEASE_ROOT}/release/releases?${API}`,
+        `${releaseRoot(project)}/release/releases?${API}`,
         {
             definitionId,
             description,
@@ -163,12 +177,15 @@ export function createRelease(
     );
 }
 
-export function approveRelease(pat: string, approvalId: number, comment: string, signal?: AbortSignal): Promise<ApiResult<AdoApproval>> {
-    return patchJson(`${RELEASE_ROOT}/release/approvals/${approvalId}?${API}`, { status: 'approved', comment }, signal, authHeaders(pat));
+export function approveRelease(
+    project: string,
+    pat: string, approvalId: number, comment: string, signal?: AbortSignal): Promise<ApiResult<AdoApproval>> {
+    return patchJson(`${releaseRoot(project)}/release/approvals/${approvalId}?${API}`, { status: 'approved', comment }, signal, authHeaders(pat));
 }
 
 /** Elle başlatılan (otomatik tetiklenmeyen) ortamı çalıştırır. */
 export function startEnvironment(
+    project: string,
     pat: string,
     releaseId: number,
     environmentId: number,
@@ -176,7 +193,7 @@ export function startEnvironment(
     signal?: AbortSignal,
 ): Promise<ApiResult<AdoReleaseEnvironment>> {
     return patchJson(
-        `${RELEASE_ROOT}/release/releases/${releaseId}/environments/${environmentId}?${API}`,
+        `${releaseRoot(project)}/release/releases/${releaseId}/environments/${environmentId}?${API}`,
         { status: 'inProgress', comment },
         signal,
         authHeaders(pat),

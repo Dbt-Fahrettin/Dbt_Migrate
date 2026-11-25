@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     AZURE_ORG,
-    AZURE_PROJECT,
     approveRelease,
     createRelease,
     describeAzureFailure,
@@ -12,7 +11,7 @@ import {
     queueBuild,
     startEnvironment,
 } from '../../api/azureDevOps';
-import type { AdoBuild, AdoRelease, AdoReleaseEnvironment } from '../../api/azureDevOps';
+import type { AdoBuild, AdoRelease, AdoReleaseEnvironment, AzureProject } from '../../api/azureDevOps';
 import { describeError } from '../../api/http';
 import type { ApiResult } from '../../api/http';
 import { fullName } from '../../auth/types';
@@ -44,11 +43,12 @@ import type { ServiceGroup, ServiceOrders, StateLabel, Tone, Track } from './pip
 
 const PAT_KEY = 'dbt-admin.azure-pat.v1';
 const ORDER_KEY = 'dbt-admin.pipeline-order.v1';
+const PAT_EVENT = 'dbt-admin-pat-changed';
 const POLL_MS = 10_000;
 
-function readOrders(): ServiceOrders {
+function readOrders(project: string): ServiceOrders {
     try {
-        const parsed: unknown = JSON.parse(window.localStorage.getItem(ORDER_KEY) ?? '{}');
+        const parsed: unknown = JSON.parse(window.localStorage.getItem(`${ORDER_KEY}:${project}`) ?? '{}');
 
         return parsed && typeof parsed === 'object' ? (parsed as ServiceOrders) : {};
     } catch {
@@ -56,9 +56,9 @@ function readOrders(): ServiceOrders {
     }
 }
 
-function storeOrders(orders: ServiceOrders): void {
+function storeOrders(project: string, orders: ServiceOrders): void {
     try {
-        window.localStorage.setItem(ORDER_KEY, JSON.stringify(orders));
+        window.localStorage.setItem(`${ORDER_KEY}:${project}`, JSON.stringify(orders));
     } catch {
         /* saklanamazsa yalnız bu oturumda geçerli kalır */
     }
@@ -119,13 +119,17 @@ function storePat(pat: string, remember: boolean): void {
     } catch {
         /* saklanamazsa yalnız bu oturumda bellekte kalır */
     }
+
+    // Aynı sayfadaki öteki proje bölümü de anahtarı alsın.
+    window.dispatchEvent(new Event(PAT_EVENT));
 }
 
 interface Props {
+    project: AzureProject;
     onOpenMigration?: () => void;
 }
 
-export function PipelinePanel({ onOpenMigration }: Props) {
+export function PipelinePanel({ project, onOpenMigration }: Props) {
     const { user } = useAuth();
     const actor = user ? fullName(user) : '';
 
@@ -138,7 +142,7 @@ export function PipelinePanel({ onOpenMigration }: Props) {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [pending, setPending] = useState<Pending | null>(null);
-    const [orders, setOrders] = useState<ServiceOrders>(readOrders);
+    const [orders, setOrders] = useState<ServiceOrders>(() => readOrders(project));
 
     function setOrder(service: string, text: string): void {
         const next = { ...orders };
@@ -151,7 +155,7 @@ export function PipelinePanel({ onOpenMigration }: Props) {
         }
 
         setOrders(next);
-        storeOrders(next);
+        storeOrders(project, next);
     }
 
     // Build bitince release'i kendiliğinden açılacak hatlar: hat anahtarı → izlenen build.
@@ -189,8 +193,8 @@ export function PipelinePanel({ onOpenMigration }: Props) {
         async (track: Track, token: string): Promise<void> => {
             try {
                 const [builds, releases] = await Promise.all([
-                    listBuilds(token, track.build.id, 5),
-                    listReleases(token, track.release.id, 3),
+                    listBuilds(project, token, track.build.id, 5),
+                    listReleases(project, token, track.release.id, 3),
                 ]);
                 const failure = describeAzureFailure(builds) || describeAzureFailure(releases);
 
@@ -213,13 +217,13 @@ export function PipelinePanel({ onOpenMigration }: Props) {
                     setWatched([...autoRef.current.keys()]);
 
                     if (build.result === 'succeeded') {
-                        const created = await createRelease(token, track.release.id, track.artifactAlias, build, releaseDescription(actor, build));
+                        const created = await createRelease(project, token, track.release.id, track.artifactAlias, build, releaseDescription(actor, build));
                         const createFailure = describeAzureFailure(created);
 
                         patch(track.key, { error: createFailure ? `Release açılamadı: ${createFailure}` : '' });
 
                         if (!createFailure) {
-                            const again = await listReleases(token, track.release.id, 3);
+                            const again = await listReleases(project, token, track.release.id, 3);
 
                             patch(track.key, { releases: again.data?.value ?? [] });
                         }
@@ -231,7 +235,7 @@ export function PipelinePanel({ onOpenMigration }: Props) {
                 patch(track.key, { error: describeError(caught) });
             }
         },
-        [actor],
+        [actor, project],
     );
 
     async function loadAll(token: string): Promise<void> {
@@ -239,7 +243,7 @@ export function PipelinePanel({ onOpenMigration }: Props) {
         setError('');
 
         try {
-            const [builds, releases] = await Promise.all([listBuildDefinitions(token), listReleaseDefinitions(token)]);
+            const [builds, releases] = await Promise.all([listBuildDefinitions(project, token), listReleaseDefinitions(project, token)]);
             const failure = describeAzureFailure(builds) || describeAzureFailure(releases);
 
             if (failure) {
@@ -267,21 +271,53 @@ export function PipelinePanel({ onOpenMigration }: Props) {
             return;
         }
 
-        storePat(token, remember);
-        setPat(token);
         setPatInput('');
-        void loadAll(token);
+        storePat(token, remember);
+
+        // Depolama kapalıysa olay anahtarı bulamaz; bu bölümde yine de bağlan.
+        if (readStoredPat().pat !== token) {
+            setPat(token);
+            void loadAll(token);
+        }
     }
 
     function disconnect(): void {
         storePat('', false);
-        autoRef.current.clear();
-        setWatched([]);
-        setPat('');
-        setGroups(null);
-        setData({});
-        setError('');
     }
+
+    // Açılışta kayıtlı PAT varsa listeyi getir; PAT başka proje bölümünden girilir / kaldırılırsa buna da uy.
+    const loadRef = useRef(loadAll);
+
+    useEffect(() => {
+        loadRef.current = loadAll;
+    });
+
+    useEffect(() => {
+        if (stored.pat) {
+            void loadRef.current(stored.pat);
+        }
+
+        const onChange = (): void => {
+            const now = readStoredPat();
+
+            setPat(now.pat);
+            setRemember(now.remember);
+
+            if (now.pat) {
+                void loadRef.current(now.pat);
+            } else {
+                autoRef.current.clear();
+                setWatched([]);
+                setGroups(null);
+                setData({});
+                setError('');
+            }
+        };
+
+        window.addEventListener(PAT_EVENT, onChange);
+
+        return () => window.removeEventListener(PAT_EVENT, onChange);
+    }, [stored.pat]);
 
     // Çalışan build / sürmekte olan release / onay bekleyen ortam varsa o hatları düzenli yenile.
     useEffect(() => {
@@ -336,7 +372,7 @@ export function PipelinePanel({ onOpenMigration }: Props) {
 
     function startBuild(track: Track, auto: boolean): void {
         act(track, auto ? 'Pipeline başlat + release aç' : 'Pipeline başlat', auto ? 'Build başarılı bitince release otomatik açılır.' : undefined, async () => {
-            const result = await queueBuild(pat, track.build.id);
+            const result = await queueBuild(project, pat, track.build.id);
             const failure = failureOf(result);
 
             if (!failure && auto && result.data) {
@@ -349,7 +385,7 @@ export function PipelinePanel({ onOpenMigration }: Props) {
 
     function newRelease(track: Track, build: AdoBuild): void {
         act(track, 'Release oluştur', `Build: ${build.buildNumber}`, async () =>
-            failureOf(await createRelease(pat, track.release.id, track.artifactAlias, build, releaseDescription(actor, build))),
+            failureOf(await createRelease(project, pat, track.release.id, track.artifactAlias, build, releaseDescription(actor, build))),
         );
     }
 
@@ -361,13 +397,13 @@ export function PipelinePanel({ onOpenMigration }: Props) {
         }
 
         act(track, `${env.name} ortamını onayla`, `Release: ${release.name}`, async () =>
-            failureOf(await approveRelease(pat, approvalId, `Admin Console${actor ? ` (${actor})` : ''}`)),
+            failureOf(await approveRelease(project, pat, approvalId, `Admin Console${actor ? ` (${actor})` : ''}`)),
         );
     }
 
     function startEnv(track: Track, release: AdoRelease, env: AdoReleaseEnvironment): void {
         act(track, `${env.name} ortamını başlat`, `Release: ${release.name}`, async () =>
-            failureOf(await startEnvironment(pat, release.id, env.id, `Admin Console${actor ? ` (${actor})` : ''}`)),
+            failureOf(await startEnvironment(project, pat, release.id, env.id, `Admin Console${actor ? ` (${actor})` : ''}`)),
         );
     }
 
@@ -375,9 +411,9 @@ export function PipelinePanel({ onOpenMigration }: Props) {
         <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-50">Yayın hattı (Azure DevOps)</h2>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-50">Yayın hattı · {project}</h2>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {AZURE_ORG}/{AZURE_PROJECT} · pipeline başlat → release oluştur → canlı onayı. Migration yayından sonra
+                        {AZURE_ORG}/{project} · pipeline başlat → release oluştur → canlı onayı. Migration yayından sonra
                         Migration ekranından çalıştırılır.
                     </p>
                 </div>

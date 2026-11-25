@@ -182,7 +182,8 @@ export function ServiceVersionsPage({ onOpenMigration }: PageProps) {
                 servis anahtarı istemez, veritabanına dokunmaz.
             </p>
 
-            <PipelinePanel onOpenMigration={onOpenMigration} />
+            <PipelinePanel project="dbt" onOpenMigration={onOpenMigration} />
+            <PipelinePanel project="unideva" onOpenMigration={onOpenMigration} />
         </div>
     );
 }
